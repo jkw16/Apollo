@@ -58,7 +58,7 @@ struct ContentView: View {
                 Text("Built for the moments\nbetween everything else.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(4)
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-            HStack { Text("APOLLO  /  0.2.2").font(.system(size: 9, weight: .medium)).tracking(1); Spacer(); Image(systemName: "arrow.up.right") }
+            HStack { Text("APOLLO  /  0.3.0").font(.system(size: 9, weight: .medium)).tracking(1); Spacer(); Image(systemName: "arrow.up.right") }
                 .foregroundStyle(.tertiary).padding(.top, 23).padding(.bottom, 24)
         }.padding(.horizontal, 20).background(Color.black.opacity(0.22))
     }
@@ -204,6 +204,9 @@ struct ContentView: View {
             }
             GroupBox("LYRICS") {
                 VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Find lyrics automatically", isOn: $model.automaticLyricsEnabled)
+                    Text("Song details are sent to LRCLIB to find lyrics. Matches are saved on this Mac. Imported lyrics take priority.").font(.caption).foregroundStyle(.secondary)
+                    Text(model.lyricStatus).font(.caption).foregroundStyle(.secondary)
                     HStack { Button("Import .lrc file…", action: model.importLyrics); Spacer(); Text("\(model.lyrics.count) timed lines").foregroundStyle(.secondary) }
                     HStack { Text("Timing adjustment"); Spacer(); Text(String(format: "%+.1f s", model.lyricOffset)).monospacedDigit() }
                     Slider(value: Binding(get: { model.lyricOffset }, set: model.updateOffset), in: -10...10, step: 0.1).disabled(model.trackID.isEmpty)

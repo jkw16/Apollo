@@ -1,5 +1,15 @@
 # Developer preview validation
 
+## 0.3 automatic lyrics
+
+- Automatic lookup uses LRCLIB with strict title/artist/duration matching, local result caching and imported-lyric precedence. Stale requests are canceled and guarded by request identity.
+- Added fixture tests for metadata encoding, version mismatch rejection, missing-album fallback and HTTP 429 backoff.
+- Live provider smoke check returned HTTP 200 and timed lyrics for its documented example song. No third-party lyrics are included in tests or source.
+- All 11 tests, debug/release builds and packaged signature verification passed.
+- Live Music connection succeeded with existing authorization. Automatic lyrics loaded for the playing track without an import; current-line highlighting, scrolling and a separate contextual emoji were visually verified.
+- Fresh permission denial/retry, fast skipping under slow network conditions and Spotify playback still need broader runtime testing.
+
+
 ## 0.2.2 Apple Music setup
 
 - Added a guided connection sheet, player launch, permission recovery shortcut, retry and verified-connection status. Selecting Apple Music again reopens the guide without disconnecting.

@@ -18,12 +18,26 @@ struct TimedLyricsView: View {
             let position = model.clock.elapsed(at: timeline.date) + model.lyricOffset
             let active = LRC.activeIndex(in: model.lyrics, at: position)
             Group {
-                if model.lyrics.isEmpty {
+                if model.lyrics.isEmpty && !model.plainLyrics.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(model.lyricStatus).font(.caption).foregroundStyle(.secondary)
+                            Text(model.plainLyrics).font(settings.typeface.font(size: size * 0.8))
+                                .textSelection(.enabled)
+                        }
+                    }
+                } else if model.lyrics.isEmpty {
                     VStack(alignment: .leading, spacing: 16) {
                         Image(systemName: "quote.opening").font(.system(size: 30)).foregroundStyle(apolloOrange)
                         Text("Every word,\na little closer.").font(settings.typeface.font(size: size))
-                        Text("Import timed lyrics for this song to follow along.").font(.system(size: 12)).foregroundStyle(.secondary)
-                        if !floating { Button("Import .lrc", action: model.importLyrics).buttonStyle(.bordered) }
+                        Text(model.lyricStatus).font(.system(size: 12)).foregroundStyle(.secondary)
+                        if model.loadingLyrics { ProgressView().controlSize(.small) }
+                        if !floating && !model.trackID.isEmpty {
+                            if model.automaticLyricsEnabled && !model.loadingLyrics {
+                                Button("Try lyrics again", action: model.retryLyrics).buttonStyle(.bordered)
+                            }
+                            Button("Import lyrics…", action: model.importLyrics).buttonStyle(.borderless)
+                        }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     GeometryReader { geometry in

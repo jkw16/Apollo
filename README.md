@@ -6,7 +6,7 @@ Native SwiftUI + AppKit. macOS 14+. No third-party dependencies. MIT licensed.
 
 ![Apollo’s listening room, running on macOS](docs/apollo-preview.png)
 
-> **0.2 developer preview.** A working foundation, not a production release or an official integration with Apple, Spotify, YouTube, Artworky, Verci, or Lumn. Inspired by the idea of bringing artwork, lyrics, and ambient lighting into one app; implemented with original code and visuals.
+> **0.3 developer preview.** A working foundation, not a production release or an official integration with Apple, Spotify, YouTube, Artworky, Verci, or Lumn. Inspired by the idea of bringing artwork, lyrics, and ambient lighting into one app; implemented with original code and visuals.
 
 ## What works
 
@@ -14,7 +14,7 @@ Native SwiftUI + AppKit. macOS 14+. No third-party dependencies. MIT licensed.
 | --- | --- |
 | Apple Music desktop connection | Current song, artist, album, position, artwork where supplied by Music, playback controls via macOS Automation |
 | Spotify desktop connection | Current song, artwork URL, playback position and controls via its scripting interface; no API key needed |
-| Animated lyrics | Import UTF-8 `.lrc` files; timestamp-based highlighting and scrolling, click a line to seek, ±10 s timing correction |
+| Animated lyrics | Automatic LRCLIB lookup and local caching; timestamp-based highlighting, scrolling and emoji popups; optional `.lrc` overrides |
 | Immersive artwork | Artwork-backed ambient scene, fullscreen window, and muted looping local video imports |
 | Display edge glow | Click-through panels on all attached displays; desktop/Spaces support; adjustable intensity |
 | YouTube companion | Paste a video URL into settings; official, user-initiated embedded player beside lyrics |
@@ -44,11 +44,19 @@ You can open `Package.swift` in Xcode for development. Use the bundled `.app` fo
 1. Try **Demo**. It is a silent visual preview, not a song stream.
 2. Select **Apple Music** in Apollo to open its setup panel, then click **Connect Apple Music**. Apollo opens Music for you. For Spotify, select **Spotify** and click **Connect**.
 3. Choose **OK / Allow** on the macOS Automation prompt, play a song in Music, and return to Apollo. No Apple account credentials are entered in Apollo. If permission was denied, click **Automation Settings…**, enable **Music** under **Apollo**, and click **Try Again**. A successful connection with no active track asks you to play a song. Click **Apple Music** again any time to reopen the guide.
-4. Import a `.lrc` file for the playing track. Lyrics are not downloaded automatically.
+4. Lyrics load automatically when LRCLIB has a matching track. Timed lyrics follow playback; untimed lyrics display without automatic highlighting. No match? Retry from the lyric area or import an `.lrc` override.
 5. Optionally import local motion artwork, enable **Edge glow**, and enter fullscreen with **⌃⌘F**.
 6. To show YouTube, open settings and paste a video link. Click Play inside the player. Music and YouTube have independent audio/transport; mute one using its own controls if needed.
 
 Shortcuts: **⌘P** play/pause, **⌘← / ⌘→** previous/next, **⇧⌘L** import lyrics, **⇧⌘I** import video. The menu bar icon also controls playback and glow. Quit Apollo to remove its overlays.
+
+### Automatic lyrics
+
+Automatic lyrics are on by default. When the song changes, Apollo sends its title, artist, album and duration to [LRCLIB](https://lrclib.net) over HTTPS. No account or API key is needed. Turn lookup off in Settings or the Timed lyrics menu. Demo never triggers a lookup.
+
+Matches require the same normalized title and artist and a duration within two seconds. A missing album match triggers a search with the same title, artist and duration safeguards. Timed results follow the current playback position, including pause and seeking. Untimed results display as scrollable text; instrumental and missing tracks have explicit messages. Requests are canceled on source/track changes, and late results cannot replace the current lyrics. Service backoff is respected; failures offer a manual retry rather than polling the provider.
+
+Successful results are cached in Apollo’s local library for subsequent playback. Imported `.lrc` files take priority. Availability and timing depend on the provider; this is not Apple Music’s built-in lyric catalog. LRCLIB access does not imply that Apollo’s MIT license covers third-party lyrics.
 
 ### Timed lyrics
 
@@ -89,7 +97,7 @@ Blank timestamped lines represent instrumental passages. Timing is line-level, n
 
 ## Privacy
 
-No analytics, accounts, server, API secrets, or listening-history upload. Apple Events stay on-device. Spotify artwork is fetched from the artwork URL supplied by Spotify. YouTube connections begin only when you load a video and are subject to [Google’s privacy policy](https://policies.google.com/privacy) and [YouTube’s terms](https://www.youtube.com/t/terms). Your imported assets stay on your Mac and are not included in the repository.
+No analytics, Apollo accounts, server, or API secrets. Apple Events stay on-device. Automatic lyrics send current song metadata to LRCLIB when a cached match or imported override is unavailable; disable Automatic Lyrics to stop these lookups. Spotify artwork is fetched from the artwork URL supplied by Spotify. YouTube connections begin only when you load a video and are subject to [Google’s privacy policy](https://policies.google.com/privacy) and [YouTube’s terms](https://www.youtube.com/t/terms). Your imported assets stay on your Mac and are not included in the repository.
 
 ## Architecture
 
@@ -99,7 +107,7 @@ Tests cover timestamp fractions/offsets/repetition, seeking backwards, blank int
 
 ## Roadmap
 
-- Licensed automatic lyric lookup and enhanced word-timed lyrics.
+- Broader licensed lyric-provider support and enhanced word-timed lyrics.
 - Provider-aware rights controls and review before broader distribution.
 - Artwork-derived color palettes and an optional audio-reactive engine.
 - Better media management, accessibility audit, and multi-display configuration.

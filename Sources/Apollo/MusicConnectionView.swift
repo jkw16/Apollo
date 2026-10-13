@@ -47,7 +47,7 @@ struct MusicConnectionView: View {
                  : "Permission denied before? Open Automation Settings and turn on Music under Apollo, then try again.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
-            Text("For animated lyrics, choose Timed lyrics → Import Timed Lyrics… and select an .lrc file for the current song. Apple Music’s built-in lyrics and animated covers aren’t imported automatically.")
+            Text("Lyrics load automatically from LRCLIB when a matching song is available. Apollo sends the song title, artist, album and duration to find a match. You can turn this off in Settings. Apple Music’s built-in lyrics and animated covers aren’t imported.")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(28).frame(width: 530).preferredColorScheme(.dark).tint(apolloOrange)

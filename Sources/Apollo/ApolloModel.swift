@@ -6,6 +6,7 @@ import SwiftUI
 
 struct TrackAssets: Codable {
     var lrc: String?
+    var automaticLyrics: AutomaticLyrics?
     var movie: String?
     var offset: Double = 0
 }
@@ -22,6 +23,18 @@ struct TrackAssets: Codable {
     @Published var lyricAppearance = LyricAppearance.load() { didSet { lyricAppearance.save() } }
     @Published var showLyricOptions = false
     @Published var lyrics = LRC.parse(demoLyrics)
+    @Published var plainLyrics = ""
+    @Published var lyricStatus = "Original demo lyrics"
+    @Published var loadingLyrics = false
+    @Published var automaticLyricsEnabled = UserDefaults.standard.object(forKey: "automaticLyrics") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(automaticLyricsEnabled, forKey: "automaticLyrics")
+            if source != .demo { loadLyrics() }
+        }
+    }
+    private let lyricClient = AutomaticLyricClient()
+    private var lyricTask: Task<Void, Never>?
+    private var lyricRequest = UUID()
     @Published var status = "Demo · no audio"
     @Published var error: String?
     @Published var connected = false
@@ -73,6 +86,8 @@ struct TrackAssets: Codable {
             if next == .apple { showMusicSetup = true }
             return
         }
+        cancelLyricLookup()
+        plainLyrics = ""; lyricStatus = "Play a song to see its lyrics."
         generation = UUID()
         pollTask?.cancel()
         source = next
@@ -93,7 +108,7 @@ struct TrackAssets: Codable {
         clock = PlaybackClock(position: 0, duration: 0, playing: false)
         if next == .demo {
             trackID = "demo"; title = "A little closer to the music."; artist = "Apollo · Original visual demo"
-            album = "Welcome aboard"; lyrics = LRC.parse(Self.demoLyrics)
+            album = "Welcome aboard"; lyrics = LRC.parse(Self.demoLyrics); lyricStatus = "Original demo lyrics"
             clock = PlaybackClock(position: 0, duration: 60, playing: true)
             status = "Demo · no audio"
         } else { status = "Click Connect to enable \(next.rawValue)" }
@@ -172,6 +187,7 @@ struct TrackAssets: Codable {
             if isConnecting { error = nil }
             connected = true; isConnecting = false; automationDenied = false
             guard let snapshot else {
+                cancelLyricLookup(); plainLyrics = ""; lyricStatus = "Play a song to see its lyrics."
                 freeze(); status = "Connected · Play a song in \(selected.rawValue)"; lyrics = []; artwork = nil; trackID = ""
                 title = "Ready when you are"; artist = "Play a song in \(selected.rawValue)"; album = ""
                 clearMovie(); return
@@ -239,6 +255,7 @@ struct TrackAssets: Codable {
             let text = try String(contentsOf: url, encoding: .utf8)
             let parsed = LRC.parse(text)
             guard !parsed.isEmpty else { error = "No timed lyrics found. Use lines like [00:12.50]Your lyric."; return }
+            cancelLyricLookup(); plainLyrics = ""; lyricStatus = "Imported lyrics"
             assets[trackID, default: TrackAssets()].lrc = text; lyrics = parsed; save()
         } catch { self.error = error.localizedDescription }
     }
@@ -270,10 +287,53 @@ struct TrackAssets: Codable {
     }
     private func loadAssets() {
         let item = assets[trackID]
-        lyrics = LRC.parse(item?.lrc ?? ""); lyricOffset = item?.offset ?? 0
+        loadLyrics(); lyricOffset = item?.offset ?? 0
         clearMovie()
         if let name = item?.movie { loadMovie(directory.appendingPathComponent(name)) }
     }
+    private func cancelLyricLookup() {
+        lyricRequest = UUID(); lyricTask?.cancel(); lyricTask = nil; loadingLyrics = false
+    }
+
+    func retryLyrics() { loadLyrics() }
+
+    private func loadLyrics() {
+        cancelLyricLookup(); lyrics = []; plainLyrics = ""
+        guard source != .demo, !trackID.isEmpty else { lyricStatus = "Play a song to see its lyrics."; return }
+        if let imported = assets[trackID]?.lrc, !LRC.parse(imported).isEmpty {
+            lyrics = LRC.parse(imported); lyricStatus = "Imported lyrics"; return
+        }
+        guard automaticLyricsEnabled else { lyricStatus = "Automatic lyrics are off."; return }
+        if let cached = assets[trackID]?.automaticLyrics {
+            applyLyrics(cached); return
+        }
+        loadingLyrics = true; lyricStatus = "Finding lyrics…"
+        let id = trackID, token = lyricRequest
+        let query = LyricQuery(title: title, artist: artist, album: album, duration: clock.duration)
+        lyricTask = Task {
+            do {
+                let result = try await lyricClient.lookup(query)
+                guard token == lyricRequest, id == trackID, !Task.isCancelled else { return }
+                loadingLyrics = false
+                if let result {
+                    assets[id, default: TrackAssets()].automaticLyrics = result
+                    applyLyrics(result); save()
+                } else { lyricStatus = "No matching lyrics found for this song." }
+            } catch {
+                guard token == lyricRequest, !Task.isCancelled else { return }
+                loadingLyrics = false
+                lyricStatus = (error as? LyricLookupError)?.localizedDescription ?? "Couldn’t load lyrics. Check your connection and try again."
+            }
+        }
+    }
+
+    private func applyLyrics(_ record: AutomaticLyrics) {
+        lyrics = LRC.parse(record.syncedLyrics ?? "")
+        plainLyrics = lyrics.isEmpty ? (record.plainLyrics ?? "") : ""
+        lyricStatus = record.instrumental ? "Instrumental · no lyrics" : !lyrics.isEmpty
+            ? "Synced lyrics · LRCLIB" : !plainLyrics.isEmpty ? "Lyrics · LRCLIB · timing unavailable" : "No lyrics available for this song."
+    }
+
     private func loadMovie(_ url: URL) {
         clearMovie()
         let player = AVPlayer(url: url); player.isMuted = true

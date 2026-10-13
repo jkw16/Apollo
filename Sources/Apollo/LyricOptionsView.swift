@@ -55,6 +55,9 @@ struct LyricOptionsView: View {
                 colorRow("Secondary Text…", keyPath: \.secondaryText)
                 choice("Reset Colors", selected: false) { model.lyricAppearance.resetColors() }
                 separator
+                choice("Automatic Lyrics", selected: model.automaticLyricsEnabled) { model.automaticLyricsEnabled.toggle() }
+                Text(model.lyricStatus).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 26)
+                Link("Lyrics by LRCLIB", destination: URL(string: "https://lrclib.net")!).font(.caption).padding(.horizontal, 26)
                 choice("Import Timed Lyrics…", selected: false) {
                     model.showLyricOptions = false
                     DispatchQueue.main.async { model.importLyrics() }

@@ -8,6 +8,7 @@ struct TimedLyricsView: View {
     var immersive = false
     var floating = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var emojis: [Int: String] = [:]
 
     private var settings: LyricAppearance { model.lyricAppearance }
     private var size: CGFloat { settings.textSize * (compact ? 0.7 : immersive ? 1.3 : 1) }
@@ -52,7 +53,24 @@ struct TimedLyricsView: View {
                     }
                 }
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .overlay(alignment: .topTrailing) {
+                    if settings.style.usesEmoji, let active, let emoji = emojis[active] {
+                        LyricEmojiBurst(emoji: emoji, size: min(76, size * 1.65))
+                            .id("\(model.trackID):\(active):\(emoji)")
+                            .padding(.top, 8).padding(.trailing, 8)
+                    }
+                }
         }
+        .onChange(of: model.lyrics, initial: true) { _, _ in refreshEmojis() }
+        .onChange(of: model.title) { _, _ in refreshEmojis() }
+        .onChange(of: model.artist) { _, _ in refreshEmojis() }
+    }
+
+    private func refreshEmojis() {
+        // Cache per line rather than rescanning lyric text on every playback tick.
+        emojis = Dictionary(uniqueKeysWithValues: model.lyrics.compactMap { line in
+            LyricEmoji.resolve(line: line.text, title: model.title, artist: model.artist).map { (line.id, $0) }
+        })
     }
 
     private func center(_ active: Int?, proxy: ScrollViewProxy) {
@@ -65,5 +83,38 @@ struct TimedLyricsView: View {
         }
         if index == active { return settings.highlight.color }
         return index < (active ?? -1) ? settings.lyricText.color : settings.secondaryText.color
+    }
+}
+
+/// A transient effect anchored to the lyric viewport, never to a scrolling lyric row.
+private struct LyricEmojiBurst: View {
+    let emoji: String
+    let size: CGFloat
+    @State private var appearedAt = Date()
+    @State private var finished = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: finished)) { timeline in
+            let elapsed = max(0, timeline.date.timeIntervalSince(appearedAt))
+            let enter = min(1, elapsed / 0.3)
+            let fade = min(1, max(0, (2.7 - elapsed) / 0.65))
+            // Ease-out-back produces one small pop, followed by a gentle upward drift.
+            let pop = 1 + 2.70158 * pow(enter - 1, 3) + 1.70158 * pow(enter - 1, 2)
+            Text(emoji)
+                .font(.system(size: size))
+                .shadow(color: .black.opacity(0.22), radius: 12, y: 4)
+                .scaleEffect(reduceMotion ? 1 : 0.45 + pop * 0.55)
+                .offset(y: reduceMotion ? 0 : 14 - min(elapsed / 2.7, 1) * 34)
+                .opacity(finished ? 0 : reduceMotion ? 1 : min(1, elapsed / 0.12) * fade)
+                .frame(width: size * 1.5, height: size * 1.6)
+        }
+        .allowsHitTesting(false).accessibilityHidden(true)
+        .task {
+            do {
+                try await Task.sleep(for: .seconds(2.7))
+                finished = true
+            } catch { /* A new lyric or style replaces and cancels this burst. */ }
+        }
     }
 }

@@ -2,6 +2,24 @@ import XCTest
 @testable import ApolloCore
 
 final class ApolloCoreTests: XCTestCase {
+    func testEmojiUsesCurrentLyricBeforeMetadata() {
+        XCTAssertEqual(LyricEmoji.resolve(line: "Dancing under the rain", title: "Love", artist: "Sun"), "🌧️")
+        XCTAssertEqual(LyricEmoji.resolve(line: "Nothing specific here", title: "Moonlight"), "🌙")
+        XCTAssertEqual(LyricEmoji.resolve(line: "Nothing specific here"), "🎵")
+        XCTAssertNil(LyricEmoji.resolve(line: "  \n", title: "Love"))
+    }
+    func testEmojiPhrasesTakePrecedence() {
+        XCTAssertEqual(LyricEmoji.resolve(line: "You broke my heart, love"), "💔")
+        XCTAssertEqual(LyricEmoji.resolve(line: "No more tears tonight"), "🌤️")
+        XCTAssertEqual(LyricEmoji.resolve(line: "I don’t love you"), "💔")
+        XCTAssertEqual(LyricEmoji.resolve(line: "Let you go, my love"), "🕊️")
+    }
+    func testEmojiWordBoundariesAndAccents() {
+        XCTAssertEqual(LyricEmoji.resolve(line: "Start the carpool diet"), "🎵")
+        XCTAssertEqual(LyricEmoji.resolve(line: "CORAZÓN ROTO!"), "💔")
+        XCTAssertEqual(LyricEmoji.resolve(line: "Música, colores y luz"), "✨")
+        XCTAssertEqual(LyricEmoji.resolve(line: "The OCEAN…"), "🌊")
+    }
     func testRepeatedTimestampsFractionsAndOffset() {
         let lines = LRC.parse("[ar:Apollo]\n[offset:-250]\n[00:02.50][01:02.125]Hello 🌙\n[00:00.1]Start\n[00:65]Invalid")
         XCTAssertEqual(lines.map(\.time), [0, 2.25, 61.875])

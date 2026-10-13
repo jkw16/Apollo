@@ -6,6 +6,7 @@ enum LyricStyle: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
     var usesFisheye: Bool { self == .fisheye || self == .fisheyeVisual }
     var usesBlur: Bool { self == .visual || self == .fisheyeVisual }
+    var usesEmoji: Bool { self == .visual || self == .fisheyeVisual }
 }
 
 enum LyricTypeface: String, CaseIterable, Codable, Identifiable {

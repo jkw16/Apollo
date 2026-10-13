@@ -54,7 +54,7 @@ Shortcuts: **⌘P** play/pause, **⌘← / ⌘→** previous/next, **⇧⌘L** i
 
 Click **Timed lyrics** in the sidebar to open the customization popover. It includes:
 
-- **Style:** Ship (flat scrolling), Fisheye (distance-based scaling), Visual (soft focus/fading), and Fisheye Visual (both).
+- **Style:** Ship (flat scrolling), Fisheye (distance-based scaling), Visual (soft focus/fading with contextual emoji popups), and Fisheye Visual (scaling, soft focus, and emoji popups). When a line becomes active, its emoji pops up independently in the upper-right of the lyric viewport, drifts, and fades after 2.7 seconds. Emojis never sit in the lyric rows or scroll with the text. Ship and Fisheye have no emoji effects.
 - **Font:** SF Pro, SF Rounded, New York, Helvetica Neue, Avenir Next, Futura, and Didot, with live typeface previews.
 - **Text Size:** 20–60 points, with a reset to 33 points. Compact and immersive presentations scale relative to this value.
 - **Keep Screen Awake:** prevents display idle sleep only while music is playing and lyrics are visible. Pausing, hiding lyrics, or switching it off releases the assertion. It does not override manual sleep or lock.
@@ -64,6 +64,8 @@ Click **Timed lyrics** in the sidebar to open the customization popover. It incl
 - **Import Timed Lyrics…:** opens the LRC file picker from the bottom of the popover. The existing keyboard shortcut and general settings import button still work.
 
 Preferences are stored locally in Apollo's macOS defaults and restored after relaunch. The same appearance is used in the listening room, YouTube companion, and floating lyrics. The menu scrolls on smaller screens; Reduce Motion disables lyric blur and animated scrolling.
+
+Visual styles match emoji imagery locally from the current lyric line, then the song title and artist metadata, with a neutral music-note fallback. Specific phrases (such as “broken heart” or “no more tears”) take priority over single words. The initial matcher includes English and Spanish cues; it is a deterministic text heuristic, not AI understanding or audio analysis, and can miss metaphors, negation, or other languages. Blank instrumental lines have no emoji, original lyric text stays intact, and Reduce Motion disables the emoji animation. No lyric text is sent to an external service.
 
 ```lrc
 [ar:Your artist]

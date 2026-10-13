@@ -1,5 +1,14 @@
 # Developer preview validation
 
+## 0.2.1 contextual emoji accents
+
+- Seven tests pass, including lyric-first matching, metadata fallback, phrase priority, word boundaries, accented text, and blank interludes.
+- Debug/release builds and packaged signature verification passed.
+- Visual and Fisheye Visual share a separate viewport-anchored emoji popup layer; the original lyric rows remain text-only. Ship and Fisheye omit it. Accessibility keeps the original lyric button labels; Reduce Motion uses a brief static popup.
+- Runtime verification: seeking to “Every moment turns a wheel” triggers an independent hourglass at the upper-right of the lyric viewport. It disappears after the effect duration while that lyric remains active. No emoji remains attached to a lyric row.
+- Context matching uses offline English/Spanish cues, not audio or general-purpose semantic understanding. Metaphors and unsupported languages may fall back to metadata or a neutral music note.
+
+
 ## 0.2 lyric menu
 
 Validated on October 13, 2026:

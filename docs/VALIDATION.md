@@ -8,7 +8,9 @@ Validated on October 13, 2026 on an Apple Silicon Mac with Swift 6.3.3, targetin
 - Native app launch and main window: passed.
 - Demo pause and click-to-seek backwards: passed; seeking to the 24-second lyric updates the transport to 0:24 and preserves pause.
 - Main interface and settings visually/accessibility inspected.
-- YouTube companion can be loaded and removed; successful online video playback has not yet been verified.
+- YouTube companion renders the official Google Developers sample video player with controls beside the lyrics and can be removed. Audio/video playback after pressing Play has not yet been verified.
+- Invalid video input displays an inline settings error; loading valid input clears it.
+- Initial GitHub Actions macOS test/package workflow: passed.
 
 Not yet verified end-to-end: Automation permission flows; live Apple Music/Spotify metadata, artwork and transport; imported video playback; external display hot-plugging; Intel Mac support; notarization; and third-party content licensing/platform approval. These are release gates for a production version.
 

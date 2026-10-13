@@ -19,7 +19,7 @@ struct ContentView: View {
         .background(Color(red: 0.055, green: 0.055, blue: 0.065))
         .tint(apolloOrange)
         .sheet(isPresented: $model.showSettings) { settings }
-        .alert("Apollo", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+        .alert("Apollo", isPresented: Binding(get: { model.error != nil && !model.showSettings }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
     }
@@ -222,6 +222,9 @@ struct ContentView: View {
     private var settings: some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack { Text("Make it your space.").font(.title2.bold()); Spacer(); Button("Done") { model.showSettings = false }.keyboardShortcut(.cancelAction) }
+            if let error = model.error {
+                Text(error).font(.callout).foregroundStyle(apolloOrange).fixedSize(horizontal: false, vertical: true)
+            }
             GroupBox("LIGHT & MOTION") {
                 VStack(alignment: .leading, spacing: 14) {
                     Toggle("Glow around every display", isOn: $model.ringEnabled)

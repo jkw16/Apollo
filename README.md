@@ -23,6 +23,8 @@ Native SwiftUI + AppKit. macOS 14+. No third-party dependencies. MIT licensed.
 
 ## Run
 
+An Apple Silicon developer-preview ZIP is available under [Releases](https://github.com/jkw16/Apollo/releases). It is ad-hoc signed, not notarized; building from source is recommended for development. Intel users should build from source (Intel execution has not been verified).
+
 Install Xcode or Apple’s Command Line Tools with Swift 5.9 or later.
 
 ```sh

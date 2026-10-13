@@ -238,6 +238,7 @@ struct TrackAssets: Codable {
         catch { self.error = "Could not save: \(error.localizedDescription)" }
     }
     func loadYouTube() {
+        error = nil
         guard let id = YouTubeURL.videoID(from: videoInput) else { error = "Paste a valid YouTube watch, share, Shorts, or embed URL."; return }
         clearMovie(); videoID = id
     }

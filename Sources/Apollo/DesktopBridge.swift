@@ -19,8 +19,12 @@ struct TrackSnapshot {
 
 enum BridgeError: LocalizedError {
     case scripting(String)
+    case automationDenied
     var errorDescription: String? {
-        switch self { case .scripting(let message): return message }
+        switch self {
+        case .scripting(let message): return message
+        case .automationDenied: return "Allow Music under Apollo in System Settings → Privacy & Security → Automation, then try again."
+        }
     }
 }
 
@@ -35,7 +39,7 @@ actor DesktopBridge {
         if let error {
             let code = error[NSAppleScript.errorNumber] as? Int ?? 0
             if code == -1743 {
-                throw BridgeError.scripting("Allow Apollo in System Settings → Privacy & Security → Automation, then reconnect.")
+                throw BridgeError.automationDenied
             }
             throw BridgeError.scripting(error[NSAppleScript.errorMessage] as? String ?? "Music connection failed (\(code)).")
         }

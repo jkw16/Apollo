@@ -25,6 +25,9 @@ struct TrackAssets: Codable {
     @Published var status = "Demo · no audio"
     @Published var error: String?
     @Published var connected = false
+    @Published var isConnecting = false
+    @Published var showMusicSetup = false
+    @Published var automationDenied = false
     @Published var showLyrics = true
     @Published var showSettings = false
     @Published var ringEnabled = false
@@ -66,10 +69,17 @@ struct TrackAssets: Codable {
     }
 
     func select(_ next: MusicSource) {
+        if source == next {
+            if next == .apple { showMusicSetup = true }
+            return
+        }
         generation = UUID()
         pollTask?.cancel()
         source = next
         connected = false
+        isConnecting = false
+        automationDenied = false
+        showMusicSetup = next == .apple
         artwork = nil
         videoID = nil
         clearMovie()
@@ -91,12 +101,47 @@ struct TrackAssets: Codable {
     }
 
     func connect() {
-        guard source != .demo else { return }
-        guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == source.bundleID }) else {
-            error = "Open \(source.rawValue), start a song, then click Connect again."
-            return
+        guard source != .demo, !isConnecting else { return }
+        let selected = source, token = generation
+        error = nil; automationDenied = false; isConnecting = true
+        status = "Opening \(selected.rawValue)…"
+        Task {
+            do {
+                try await openPlayer(selected)
+                guard token == generation else { return }
+                status = "Waiting for \(selected.rawValue) permission…"
+                await refresh(token: token)
+            } catch {
+                guard token == generation else { return }
+                isConnecting = false; connected = false
+                status = "Could not open \(selected.rawValue)"
+                self.error = error.localizedDescription
+            }
         }
-        error = nil; connected = true; status = "Connecting to \(source.rawValue)…"
+    }
+
+    private func openPlayer(_ selected: MusicSource) async throws {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: selected.bundleID) else {
+            throw BridgeError.scripting("\(selected.rawValue) isn’t installed on this Mac. Install the desktop app, then try again.")
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+    }
+
+    func openMusic() {
+        Task {
+            do { try await openPlayer(.apple) }
+            catch { self.error = error.localizedDescription }
+        }
+    }
+
+    func openAutomationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+            if !NSWorkspace.shared.open(url) {
+                error = "Open System Settings → Privacy & Security → Automation and enable Music under Apollo."
+            }
+        }
     }
 
     private func startPolling() {
@@ -104,7 +149,7 @@ struct TrackAssets: Codable {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                await self.refresh(token: token)
+                if !self.isConnecting { await self.refresh(token: token) }
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -116,16 +161,18 @@ struct TrackAssets: Codable {
             if clock.elapsed(at: Date()) >= 60 { clock = PlaybackClock(position: 0, duration: 60, playing: clock.playing) }
             return
         }
-        guard connected else { return }
+        guard connected || isConnecting else { return }
         let selected = source
         guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == selected.bundleID }) else {
-            connected = false; freeze(); status = "\(selected.rawValue) closed"; return
+            connected = false; isConnecting = false; freeze(); status = "\(selected.rawValue) closed"; return
         }
         do {
             let snapshot = try await bridge.snapshot(selected)
             guard token == generation else { return }
+            if isConnecting { error = nil }
+            connected = true; isConnecting = false; automationDenied = false
             guard let snapshot else {
-                freeze(); status = "Nothing playing"; lyrics = []; artwork = nil; trackID = ""
+                freeze(); status = "Connected · Play a song in \(selected.rawValue)"; lyrics = []; artwork = nil; trackID = ""
                 title = "Ready when you are"; artist = "Play a song in \(selected.rawValue)"; album = ""
                 clearMovie(); return
             }
@@ -149,7 +196,11 @@ struct TrackAssets: Codable {
             if clock.playing { moviePlayer?.play() } else { moviePlayer?.pause() }
         } catch {
             guard token == generation else { return }
-            connected = false; freeze(); status = "Connection needs attention"; self.error = error.localizedDescription
+            connected = false; isConnecting = false; freeze(); status = "Connection needs attention"
+            if case BridgeError.automationDenied = error { automationDenied = true }
+            self.error = automationDenied
+                ? "Enable \(selected.rawValue == "Apple Music" ? "Music" : selected.rawValue) under Apollo in System Settings → Privacy & Security → Automation, then try again."
+                : error.localizedDescription
         }
     }
 

@@ -19,7 +19,8 @@ struct ContentView: View {
         .background(Color(red: 0.055, green: 0.055, blue: 0.065))
         .tint(apolloOrange)
         .sheet(isPresented: $model.showSettings) { settings }
-        .alert("Apollo", isPresented: Binding(get: { model.error != nil && !model.showSettings }, set: { if !$0 { model.error = nil } })) {
+        .sheet(isPresented: $model.showMusicSetup) { MusicConnectionView(model: model) }
+        .alert("Apollo", isPresented: Binding(get: { model.error != nil && !model.showSettings && !model.showMusicSetup }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
     }
@@ -57,7 +58,7 @@ struct ContentView: View {
                 Text("Built for the moments\nbetween everything else.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(4)
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-            HStack { Text("APOLLO  /  0.2.1").font(.system(size: 9, weight: .medium)).tracking(1); Spacer(); Image(systemName: "arrow.up.right") }
+            HStack { Text("APOLLO  /  0.2.2").font(.system(size: 9, weight: .medium)).tracking(1); Spacer(); Image(systemName: "arrow.up.right") }
                 .foregroundStyle(.tertiary).padding(.top, 23).padding(.bottom, 24)
         }.padding(.horizontal, 20).background(Color.black.opacity(0.22))
     }
@@ -72,7 +73,9 @@ struct ContentView: View {
             HStack(spacing: 6) { Circle().fill(model.connected ? .green : apolloOrange).frame(width: 5, height: 5); Text(model.status).font(.system(size: 10)) }
                 .foregroundStyle(.secondary).padding(10).background(.white.opacity(0.045), in: Capsule())
             if model.source != .demo && !model.connected {
-                Button("Connect", action: model.connect).buttonStyle(.borderedProminent).controlSize(.small)
+                Button(model.isConnecting ? "Connecting…" : "Connect") {
+                    if model.source == .apple { model.showMusicSetup = true } else { model.connect() }
+                }.buttonStyle(.borderedProminent).controlSize(.small).disabled(model.isConnecting)
             }
             iconButton("Settings", "slider.horizontal.3") { model.showSettings = true }
         }

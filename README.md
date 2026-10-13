@@ -42,8 +42,8 @@ You can open `Package.swift` in Xcode for development. Use the bundled `.app` fo
 ## First listening session
 
 1. Try **Demo**. It is a silent visual preview, not a song stream.
-2. Open Music or Spotify, play a song, select that source in Apollo and click **Connect**.
-3. Allow macOS Automation when prompted. If denied, enable Apollo in **System Settings → Privacy & Security → Automation**, then reconnect.
+2. Select **Apple Music** in Apollo to open its setup panel, then click **Connect Apple Music**. Apollo opens Music for you. For Spotify, select **Spotify** and click **Connect**.
+3. Choose **OK / Allow** on the macOS Automation prompt, play a song in Music, and return to Apollo. No Apple account credentials are entered in Apollo. If permission was denied, click **Automation Settings…**, enable **Music** under **Apollo**, and click **Try Again**. A successful connection with no active track asks you to play a song. Click **Apple Music** again any time to reopen the guide.
 4. Import a `.lrc` file for the playing track. Lyrics are not downloaded automatically.
 5. Optionally import local motion artwork, enable **Edge glow**, and enter fullscreen with **⌃⌘F**.
 6. To show YouTube, open settings and paste a video link. Click Play inside the player. Music and YouTube have independent audio/transport; mute one using its own controls if needed.

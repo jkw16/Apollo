@@ -1,5 +1,13 @@
 # Developer preview validation
 
+## 0.2.2 Apple Music setup
+
+- Added a guided connection sheet, player launch, permission recovery shortcut, retry and verified-connection status. Selecting Apple Music again reopens the guide without disconnecting.
+- Seven existing core tests pass; updated release build and ad-hoc signature verification pass.
+- Launched 0.2.2 and inspected the setup sheet visually and through accessibility; text and controls fit.
+- Live permission approval, denial/retry, and song playback still require end-to-end validation. No user permission settings were changed during validation.
+
+
 ## 0.2.1 contextual emoji accents
 
 - Seven tests pass, including lyric-first matching, metadata fallback, phrase priority, word boundaries, accented text, and blank interludes.

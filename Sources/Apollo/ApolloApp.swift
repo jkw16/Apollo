@@ -3,6 +3,7 @@ import AppKit
 
 @main struct ApolloApp: App {
     @StateObject private var model = ApolloModel()
+    @StateObject private var lyricPresentation = LyricPresentation()
     private let edgeWindows = EdgeWindows()
     var body: some Scene {
         Window("Apollo", id: "apollo") {
@@ -10,7 +11,7 @@ import AppKit
                 .preferredColorScheme(.dark)
                 .onChange(of: model.ringEnabled) { _, value in edgeWindows.update(enabled: value, intensity: model.intensity) }
                 .onChange(of: model.intensity) { _, value in edgeWindows.update(enabled: model.ringEnabled, intensity: value) }
-                .onAppear { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true) }
+                .onAppear { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true); lyricPresentation.attach(model) }
         }
         .defaultSize(width: 1250, height: 810)
         .windowStyle(.hiddenTitleBar)

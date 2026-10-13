@@ -17,7 +17,10 @@ struct TrackAssets: Codable {
     @Published var album = "Welcome aboard"
     @Published var trackID = "demo"
     @Published var clock = PlaybackClock(position: 0, duration: 60, playing: true)
-    @Published var artwork: NSImage?
+    @Published var artwork: NSImage? { didSet { updateLyricArtworkColor() } }
+    @Published var lyricArtworkColor = apolloOrange
+    @Published var lyricAppearance = LyricAppearance.load() { didSet { lyricAppearance.save() } }
+    @Published var showLyricOptions = false
     @Published var lyrics = LRC.parse(demoLyrics)
     @Published var status = "Demo · no audio"
     @Published var error: String?
@@ -241,5 +244,19 @@ struct TrackAssets: Codable {
         error = nil
         guard let id = YouTubeURL.videoID(from: videoInput) else { error = "Paste a valid YouTube watch, share, Shorts, or embed URL."; return }
         clearMovie(); videoID = id
+    }
+
+    private func updateLyricArtworkColor() {
+        guard let artwork, let tiff = artwork.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+              let source = CIImage(bitmapImageRep: bitmap),
+              let filter = CIFilter(name: "CIAreaAverage", parameters: [kCIInputImageKey: source, kCIInputExtentKey: CIVector(cgRect: source.extent)]),
+              let output = filter.outputImage else { lyricArtworkColor = apolloOrange; return }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        CIContext(options: [.workingColorSpace: NSNull()]).render(output, toBitmap: &pixel, rowBytes: 4,
+            bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        let sample = NSColor(calibratedRed: Double(pixel[0]) / 255, green: Double(pixel[1]) / 255, blue: Double(pixel[2]) / 255, alpha: 1)
+        // Keep artwork-derived text bright enough for the dark lyric scene.
+        lyricArtworkColor = Color(nsColor: NSColor(calibratedHue: sample.hueComponent,
+            saturation: min(0.65, sample.saturationComponent), brightness: max(0.8, sample.brightnessComponent), alpha: 1))
     }
 }

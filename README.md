@@ -6,7 +6,7 @@ Native SwiftUI + AppKit. macOS 14+. No third-party dependencies. MIT licensed.
 
 ![Apollo’s listening room, running on macOS](docs/apollo-preview.png)
 
-> **0.1 developer preview.** A working foundation, not a production release or an official integration with Apple, Spotify, YouTube, Artworky, Verci, or Lumn. Inspired by the idea of bringing artwork, lyrics, and ambient lighting into one app; implemented with original code and visuals.
+> **0.2 developer preview.** A working foundation, not a production release or an official integration with Apple, Spotify, YouTube, Artworky, Verci, or Lumn. Inspired by the idea of bringing artwork, lyrics, and ambient lighting into one app; implemented with original code and visuals.
 
 ## What works
 
@@ -51,6 +51,19 @@ You can open `Package.swift` in Xcode for development. Use the bundled `.app` fo
 Shortcuts: **⌘P** play/pause, **⌘← / ⌘→** previous/next, **⇧⌘L** import lyrics, **⇧⌘I** import video. The menu bar icon also controls playback and glow. Quit Apollo to remove its overlays.
 
 ### Timed lyrics
+
+Click **Timed lyrics** in the sidebar to open the customization popover. It includes:
+
+- **Style:** Ship (flat scrolling), Fisheye (distance-based scaling), Visual (soft focus/fading), and Fisheye Visual (both).
+- **Font:** SF Pro, SF Rounded, New York, Helvetica Neue, Avenir Next, Futura, and Didot, with live typeface previews.
+- **Text Size:** 20–60 points, with a reset to 33 points. Compact and immersive presentations scale relative to this value.
+- **Keep Screen Awake:** prevents display idle sleep only while music is playing and lyrics are visible. Pausing, hiding lyrics, or switching it off releases the assertion. It does not override manual sleep or lock.
+- **Non-lockscreen Visibility:** shows a click-through floating lyric panel when Apollo is in the background. It hides when Apollo returns to the foreground; no lock-screen injection is used.
+- **Display:** chooses the floating lyric display and moves Apollo's normal window to that screen. “Follow Apollo” follows the main window's screen. Disconnected displays fall back to the current screen.
+- **Color:** Auto Sync samples the current artwork (Apollo orange fallback). Manual Lyric Text colors past lines, Highlight colors the current line, and Secondary Text colors upcoming lines. Picking a manual color turns off Auto Sync; Reset Colors restores the original palette.
+- **Import Timed Lyrics…:** opens the LRC file picker from the bottom of the popover. The existing keyboard shortcut and general settings import button still work.
+
+Preferences are stored locally in Apollo's macOS defaults and restored after relaunch. The same appearance is used in the listening room, YouTube companion, and floating lyrics. The menu scrolls on smaller screens; Reduce Motion disables lyric blur and animated scrolling.
 
 ```lrc
 [ar:Your artist]

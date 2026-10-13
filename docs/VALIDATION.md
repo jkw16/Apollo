@@ -1,5 +1,23 @@
 # Developer preview validation
 
+## 0.2 lyric menu
+
+Validated on October 13, 2026:
+
+- Debug build, all four core tests, optimized release build, and signature verification passed.
+- Timed lyrics opens a scrollable customization popover instead of an immediate file picker. Section order, font previews, checkmarks, slider, display selector, and color wells visually inspected against the supplied reference.
+- Fisheye Visual and Futura selections apply live. Text-size increment updates 33 to 34 points; Reset restores 33.
+- Font, style, size, Keep Screen Awake, and desktop visibility selections survive an app restart.
+- macOS `pmset` confirms Apollo creates its display-sleep assertion while playing with visible lyrics and releases it on pause.
+- Import Timed Lyrics opens the file picker from inside the popover; cancel returns cleanly to Apollo.
+- Multi-monitor placement/hot-plug, manual color changes, artwork-derived palettes, and locked-session behavior still need broader hardware testing.
+
+The app bundle in iCloud-synced Documents can acquire Finder metadata that invalidates its signature; runtime restart testing used the clean app from the temporary packaging directory. Release ZIPs come directly from that clean build. Install extracted apps in Applications rather than an iCloud-synced folder.
+
+![Timed lyrics options](lyric-options.png)
+
+## 0.1 foundation
+
 Validated on October 13, 2026 on an Apple Silicon Mac with Swift 6.3.3, targeting macOS 14+.
 
 - Debug build and all four XCTest cases: passed.

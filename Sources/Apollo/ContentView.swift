@@ -47,7 +47,8 @@ struct ContentView: View {
             }
             Divider().overlay(.white.opacity(0.05)).padding(.vertical, 26)
             eyebrow("SET THE SCENE").padding(.bottom, 16)
-            sideAction("Timed lyrics", icon: "text.alignleft", action: model.importLyrics)
+            sideAction("Timed lyrics", icon: "text.alignleft") { model.showLyricOptions.toggle() }
+                .popover(isPresented: $model.showLyricOptions, arrowEdge: .trailing) { LyricOptionsView(model: model) }
             sideAction("Motion artwork", icon: "rectangle.on.rectangle", action: model.importMovie)
             sideAction("YouTube video", icon: "play.rectangle") { model.showSettings = true }
             Spacer()
@@ -56,7 +57,7 @@ struct ContentView: View {
                 Text("Built for the moments\nbetween everything else.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(4)
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-            HStack { Text("APOLLO  /  0.1.0").font(.system(size: 9, weight: .medium)).tracking(1); Spacer(); Image(systemName: "arrow.up.right") }
+            HStack { Text("APOLLO  /  0.2.0").font(.system(size: 9, weight: .medium)).tracking(1); Spacer(); Image(systemName: "arrow.up.right") }
                 .foregroundStyle(.tertiary).padding(.top, 23).padding(.bottom, 24)
         }.padding(.horizontal, 20).background(Color.black.opacity(0.22))
     }
@@ -155,42 +156,7 @@ struct ContentView: View {
     }
 
     private func lyricView(compact: Bool) -> some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
-            let position = model.clock.elapsed(at: timeline.date) + model.lyricOffset
-            let active = LRC.activeIndex(in: model.lyrics, at: position)
-            Group {
-                if model.lyrics.isEmpty {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Image(systemName: "quote.opening").font(.system(size: 30)).foregroundStyle(apolloOrange)
-                        Text("Every word,\na little closer.").font(.system(size: compact ? 22 : 33, weight: .semibold, design: .rounded))
-                        Text("Import timed lyrics for this song to follow along.").font(.system(size: 12)).foregroundStyle(.secondary)
-                        Button("Import .lrc", action: model.importLyrics).buttonStyle(.bordered)
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ScrollViewReader { proxy in
-                        ScrollView(.vertical) {
-                            VStack(alignment: .leading, spacing: compact ? 20 : 24) {
-                                ForEach(model.lyrics) { line in
-                                    Button { model.control(.seek(max(0, line.time - model.lyricOffset))) } label: {
-                                        Text(line.text.isEmpty ? "• • •" : line.text)
-                                            .font(.system(size: compact ? 23 : immersive ? 45 : 33, weight: .bold, design: .rounded))
-                                            .tracking(-0.7).multilineTextAlignment(.leading)
-                                            .foregroundStyle(active == line.id ? .white : .white.opacity(0.27))
-                                            .scaleEffect(active == line.id ? 1 : 0.96, anchor: .leading)
-                                            .blur(radius: active == line.id || reduceMotion ? 0 : 0.5)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                    }.buttonStyle(.plain).id(line.id).accessibilityLabel("Seek to \(line.text)")
-                                }
-                            }.padding(.vertical, compact ? 90 : 120)
-                        }.scrollIndicators(.hidden)
-                        .onChange(of: active, initial: true) { _, value in
-                            if let value { withAnimation(reduceMotion ? nil : .spring(duration: 0.6)) { proxy.scrollTo(value, anchor: .center) } }
-                        }
-                        .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.15), .init(color: .black, location: 0.85), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
-                    }
-                }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
+        TimedLyricsView(model: model, compact: compact, immersive: immersive)
     }
 
     private var transport: some View {

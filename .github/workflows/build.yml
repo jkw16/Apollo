@@ -1,0 +1,19 @@
+name: macOS build
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test-and-build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test lyric parsing, playback clock, and URL validation
+        run: swift test
+      - name: Package Apollo
+        run: bash scripts/build-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Apollo-macOS
+          path: dist/Apollo-macOS.zip

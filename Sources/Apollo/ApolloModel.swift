@@ -1,0 +1,244 @@
+import AppKit
+import AVKit
+import ApolloCore
+import UniformTypeIdentifiers
+import SwiftUI
+
+struct TrackAssets: Codable {
+    var lrc: String?
+    var movie: String?
+    var offset: Double = 0
+}
+
+@MainActor final class ApolloModel: ObservableObject {
+    @Published var source: MusicSource = .demo
+    @Published var title = "A little closer to the music."
+    @Published var artist = "Apollo · Original visual demo"
+    @Published var album = "Welcome aboard"
+    @Published var trackID = "demo"
+    @Published var clock = PlaybackClock(position: 0, duration: 60, playing: true)
+    @Published var artwork: NSImage?
+    @Published var lyrics = LRC.parse(demoLyrics)
+    @Published var status = "Demo · no audio"
+    @Published var error: String?
+    @Published var connected = false
+    @Published var showLyrics = true
+    @Published var showSettings = false
+    @Published var ringEnabled = false
+    @Published var intensity = 0.75
+    @Published var moviePlayer: AVPlayer?
+    @Published var videoID: String?
+    @Published var videoInput = ""
+    @Published var lyricOffset: Double = 0
+    private let bridge = DesktopBridge()
+    private var pollTask: Task<Void, Never>?
+    private var movieObserver: NSObjectProtocol?
+    private var assets: [String: TrackAssets] = [:]
+    private let directory: URL
+    private var generation = UUID()
+
+    static let demoLyrics = """
+    [00:00.00]Let the room fall away
+    [00:06.00]Find a little space to feel
+    [00:12.00]Every color has a rhythm
+    [00:18.00]Every moment turns a wheel
+    [00:24.00]We are closer to the music
+    [00:30.00]Than we ever were before
+    [00:36.00]Let the light run round the edges
+    [00:42.00]Leave the world outside the door
+    [00:48.00]A whole universe of sound
+    [00:54.00]And a little room for you
+    """
+
+    init() {
+        directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Apollo", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appendingPathComponent("library.json")
+            if FileManager.default.fileExists(atPath: file.path) {
+                assets = try JSONDecoder().decode([String: TrackAssets].self, from: Data(contentsOf: file))
+            }
+        } catch { self.error = "Could not load Apollo’s local library: \(error.localizedDescription)" }
+        startPolling()
+    }
+
+    func select(_ next: MusicSource) {
+        generation = UUID()
+        pollTask?.cancel()
+        source = next
+        connected = false
+        artwork = nil
+        videoID = nil
+        clearMovie()
+        error = nil
+        lyrics = []
+        lyricOffset = 0
+        trackID = ""
+        title = "Ready when you are"
+        artist = "Open \(next.rawValue) and play a song"
+        album = ""
+        clock = PlaybackClock(position: 0, duration: 0, playing: false)
+        if next == .demo {
+            trackID = "demo"; title = "A little closer to the music."; artist = "Apollo · Original visual demo"
+            album = "Welcome aboard"; lyrics = LRC.parse(Self.demoLyrics)
+            clock = PlaybackClock(position: 0, duration: 60, playing: true)
+            status = "Demo · no audio"
+        } else { status = "Click Connect to enable \(next.rawValue)" }
+        startPolling()
+    }
+
+    func connect() {
+        guard source != .demo else { return }
+        guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == source.bundleID }) else {
+            error = "Open \(source.rawValue), start a song, then click Connect again."
+            return
+        }
+        error = nil; connected = true; status = "Connecting to \(source.rawValue)…"
+    }
+
+    private func startPolling() {
+        let token = generation
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.refresh(token: token)
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    private func refresh(token: UUID) async {
+        guard token == generation else { return }
+        if source == .demo {
+            if clock.elapsed(at: Date()) >= 60 { clock = PlaybackClock(position: 0, duration: 60, playing: clock.playing) }
+            return
+        }
+        guard connected else { return }
+        let selected = source
+        guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == selected.bundleID }) else {
+            connected = false; freeze(); status = "\(selected.rawValue) closed"; return
+        }
+        do {
+            let snapshot = try await bridge.snapshot(selected)
+            guard token == generation else { return }
+            guard let snapshot else {
+                freeze(); status = "Nothing playing"; lyrics = []; artwork = nil; trackID = ""
+                title = "Ready when you are"; artist = "Play a song in \(selected.rawValue)"; album = ""
+                clearMovie(); return
+            }
+            let changed = snapshot.id != trackID
+            trackID = snapshot.id; title = snapshot.title; artist = snapshot.artist; album = snapshot.album
+            clock = snapshot.clock
+            status = snapshot.clock.playing ? "Connected · \(selected.rawValue)" : "Paused · \(selected.rawValue)"
+            if changed {
+                artwork = nil
+                loadAssets()
+                if selected == .apple, let data = try? await bridge.artwork(), token == generation, trackID == snapshot.id {
+                    artwork = NSImage(data: data)
+                } else if selected == .spotify, let url = URL(string: snapshot.artworkURL), url.scheme == "https" {
+                    var request = URLRequest(url: url); request.timeoutInterval = 8
+                    if let (data, response) = try? await URLSession.shared.data(for: request),
+                       (response as? HTTPURLResponse)?.statusCode == 200, data.count < 20_000_000,
+                       token == generation, trackID == snapshot.id { artwork = NSImage(data: data) }
+                }
+            }
+            guard token == generation else { return }
+            if clock.playing { moviePlayer?.play() } else { moviePlayer?.pause() }
+        } catch {
+            guard token == generation else { return }
+            connected = false; freeze(); status = "Connection needs attention"; self.error = error.localizedDescription
+        }
+    }
+
+    private func freeze() {
+        clock = PlaybackClock(position: clock.elapsed(at: Date()), duration: clock.duration, playing: false)
+        moviePlayer?.pause()
+    }
+
+    func control(_ command: DesktopBridge.Command) {
+        if source == .demo {
+            let now = clock.elapsed(at: Date())
+            switch command {
+            case .toggle: clock = PlaybackClock(position: now, duration: 60, playing: !clock.playing)
+            case .seek(let time): clock = PlaybackClock(position: min(60, max(0, time)), duration: 60, playing: clock.playing)
+            case .next, .previous: clock = PlaybackClock(position: 0, duration: 60, playing: clock.playing)
+            }
+            if clock.playing { moviePlayer?.play() } else { moviePlayer?.pause() }
+            return
+        }
+        guard connected else { return }
+        let selected = source, token = generation
+        Task {
+            do {
+                try await bridge.command(command, source: selected)
+                await refresh(token: token)
+            } catch { if token == generation { self.error = error.localizedDescription } }
+        }
+    }
+
+    func importLyrics() {
+        guard !trackID.isEmpty else { error = "Connect and play a song first."; return }
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [.plainText, .text, UTType(filenameExtension: "lrc") ?? .data]
+        panel.message = "Choose a UTF-8 .lrc file for this track."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            let parsed = LRC.parse(text)
+            guard !parsed.isEmpty else { error = "No timed lyrics found. Use lines like [00:12.50]Your lyric."; return }
+            assets[trackID, default: TrackAssets()].lrc = text; lyrics = parsed; save()
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func importMovie() {
+        guard !trackID.isEmpty else { error = "Connect and play a song first."; return }
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [.movie, .mpeg4Movie, .quickTimeMovie]
+        panel.message = "Choose motion artwork you own or have permission to use. Apollo copies it into its local library."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let name = UUID().uuidString + "." + url.pathExtension
+            let destination = directory.appendingPathComponent(name)
+            try FileManager.default.copyItem(at: url, to: destination)
+            removeStoredMovie()
+            assets[trackID, default: TrackAssets()].movie = name; save(); loadMovie(destination)
+            videoID = nil
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func removeMovie() { clearMovie(); removeStoredMovie(); save() }
+    private func removeStoredMovie() {
+        if let name = assets[trackID]?.movie {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+            assets[trackID]?.movie = nil
+        }
+    }
+    func updateOffset(_ value: Double) {
+        lyricOffset = value; assets[trackID, default: TrackAssets()].offset = value; save()
+    }
+    private func loadAssets() {
+        let item = assets[trackID]
+        lyrics = LRC.parse(item?.lrc ?? ""); lyricOffset = item?.offset ?? 0
+        clearMovie()
+        if let name = item?.movie { loadMovie(directory.appendingPathComponent(name)) }
+    }
+    private func loadMovie(_ url: URL) {
+        clearMovie()
+        let player = AVPlayer(url: url); player.isMuted = true
+        moviePlayer = player
+        movieObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { [weak player] _ in
+            player?.seek(to: .zero); player?.play()
+        }
+        if clock.playing { player.play() }
+    }
+    private func clearMovie() {
+        moviePlayer?.pause(); moviePlayer = nil
+        if let observer = movieObserver { NotificationCenter.default.removeObserver(observer); movieObserver = nil }
+    }
+    private func save() {
+        do { try JSONEncoder().encode(assets).write(to: directory.appendingPathComponent("library.json"), options: .atomic) }
+        catch { self.error = "Could not save: \(error.localizedDescription)" }
+    }
+    func loadYouTube() {
+        guard let id = YouTubeURL.videoID(from: videoInput) else { error = "Paste a valid YouTube watch, share, Shorts, or embed URL."; return }
+        clearMovie(); videoID = id
+    }
+}

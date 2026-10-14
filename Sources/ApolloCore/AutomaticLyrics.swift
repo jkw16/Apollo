@@ -17,8 +17,8 @@ public struct LyricQuery: Equatable, Sendable {
                 url.queryItems?.append(URLQueryItem(name: "duration", value: String(duration)))
             }
         }
-        var request = URLRequest(url: url.url!); request.timeoutInterval = 15
-        request.setValue("Apollo v0.3.0 (https://github.com/jkw16/Apollo)", forHTTPHeaderField: "User-Agent")
+        var request = URLRequest(url: url.url!); request.timeoutInterval = 30
+        request.setValue("Apollo v0.3.1 (https://github.com/jkw16/Apollo)", forHTTPHeaderField: "User-Agent")
         return request
     }
 }
@@ -45,10 +45,12 @@ public struct AutomaticLyrics: Codable, Sendable {
 }
 
 public enum LyricLookupError: LocalizedError {
-    case unavailable, busy
+    case unavailable, busy, timedOut, offline
     public var errorDescription: String? {
         switch self {
         case .unavailable: return "Couldn’t load lyrics. Check your connection and try again."
+        case .timedOut: return "The lyrics service took too long to respond. Try lyrics again in a moment."
+        case .offline: return "You appear to be offline. Reconnect, then try lyrics again."
         case .busy: return "The lyrics service is busy. Please try again later."
         }
     }
@@ -75,6 +77,25 @@ public actor AutomaticLyricClient {
             .sorted { (LRC.parse($0.syncedLyrics ?? "").isEmpty ? 1 : 0) < (LRC.parse($1.syncedLyrics ?? "").isEmpty ? 1 : 0) }.first
     }
 
+    private func requestWithRetry(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        for attempt in 0...1 {
+            try Task.checkCancellation()
+            do { return try await session.data(for: request) }
+            catch let error as URLError {
+                try Task.checkCancellation()
+                let transient = error.code == .timedOut || error.code == .networkConnectionLost
+                if transient && attempt == 0 {
+                    try await Task.sleep(for: .seconds(1))
+                    continue
+                }
+                if error.code == .timedOut { throw LyricLookupError.timedOut }
+                if error.code == .notConnectedToInternet { throw LyricLookupError.offline }
+                throw error
+            }
+        }
+        throw LyricLookupError.unavailable
+    }
+
     private func fetch(_ request: URLRequest) async throws -> Data? {
         while busy { try await Task.sleep(for: .milliseconds(100)) }
         try Task.checkCancellation()
@@ -83,7 +104,7 @@ public actor AutomaticLyricClient {
         let delay = nextRequest.timeIntervalSinceNow
         if delay > 1 { throw LyricLookupError.busy }
         if delay > 0 { try await Task.sleep(for: .seconds(delay)) }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestWithRetry(request)
         nextRequest = Date().addingTimeInterval(0.3)
         try Task.checkCancellation()
         guard let response = response as? HTTPURLResponse else { throw LyricLookupError.unavailable }

@@ -58,7 +58,7 @@ struct ContentView: View {
                 Text("Built for the moments\nbetween everything else.").font(.system(size: 11)).foregroundStyle(.secondary).lineSpacing(4)
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                 .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-            HStack { Text("APOLLO  /  0.3.0").font(.system(size: 9, weight: .medium)).tracking(1); Spacer(); Image(systemName: "arrow.up.right") }
+            HStack { Text("APOLLO  /  \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Development")").font(.system(size: 9, weight: .medium)).tracking(1); Spacer(); Image(systemName: "arrow.up.right") }
                 .foregroundStyle(.tertiary).padding(.top, 23).padding(.bottom, 24)
         }.padding(.horizontal, 20).background(Color.black.opacity(0.22))
     }

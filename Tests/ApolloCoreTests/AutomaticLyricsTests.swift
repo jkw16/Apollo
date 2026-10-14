@@ -40,6 +40,38 @@ final class AutomaticLyricsTests: XCTestCase {
         do { _ = try await client.lookup(query); XCTFail("Expected backoff") } catch { XCTAssertTrue(error is LyricLookupError) }
     }
 
+    func testTimeoutRetriesOnceAndRecovers() async throws {
+        var attempts = 0
+        let fixture = fixture
+        LyricStub.handler = { request in
+            XCTAssertEqual(request.timeoutInterval, 30)
+            attempts += 1
+            if attempts == 1 { throw URLError(.timedOut) }
+            return (200, [:], fixture)
+        }
+        let record = try await makeClient().lookup(query)
+        XCTAssertEqual(record?.id, 1)
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testRepeatedTimeoutStopsAfterTwoAttempts() async throws {
+        var attempts = 0
+        LyricStub.handler = { _ in attempts += 1; throw URLError(.timedOut) }
+        do { _ = try await makeClient().lookup(query); XCTFail("Expected timeout") }
+        catch LyricLookupError.timedOut { }
+        catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testOfflineDoesNotRetry() async throws {
+        var attempts = 0
+        LyricStub.handler = { _ in attempts += 1; throw URLError(.notConnectedToInternet) }
+        do { _ = try await makeClient().lookup(query); XCTFail("Expected offline") }
+        catch LyricLookupError.offline { }
+        catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertEqual(attempts, 1)
+    }
+
     private func makeClient() -> AutomaticLyricClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [LyricStub.self]
@@ -48,14 +80,16 @@ final class AutomaticLyricsTests: XCTestCase {
 }
 
 private final class LyricStub: URLProtocol {
-    static var handler: ((URLRequest) -> (Int, [String: String], Data))!
+    static var handler: ((URLRequest) throws -> (Int, [String: String], Data))!
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let (status, headers, data) = Self.handler(request)
+        do {
+        let (status, headers, data) = try Self.handler(request)
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: headers)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
+        } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
     override func stopLoading() {}
 }

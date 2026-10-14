@@ -9,6 +9,7 @@ struct TimedLyricsView: View {
     var floating = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var emojis: [Int: String] = [:]
+    @State private var metalReady = false
 
     private var settings: LyricAppearance { model.lyricAppearance }
     private var size: CGFloat { settings.textSize * (compact ? 0.7 : immersive ? 1.3 : 1) }
@@ -17,6 +18,7 @@ struct TimedLyricsView: View {
         TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
             let position = model.clock.elapsed(at: timeline.date) + model.lyricOffset
             let active = LRC.activeIndex(in: model.lyrics, at: position)
+            let lensStrength = fisheyeStrength(for: active, at: position)
             Group {
                 if model.lyrics.isEmpty && !model.plainLyrics.isEmpty {
                     ScrollView {
@@ -47,13 +49,8 @@ struct TimedLyricsView: View {
                                     ForEach(model.lyrics) { line in
                                         let distance = abs(line.id - (active ?? 0))
                                         Button { model.control(.seek(max(0, line.time - model.lyricOffset))) } label: {
-                                            Text(line.text.isEmpty ? "• • •" : line.text)
-                                                .font(settings.typeface.font(size: size)).tracking(-0.4)
-                                                .multilineTextAlignment(.leading)
-                                                .foregroundStyle(color(for: line.id, active: active))
-                                                .opacity(active == line.id ? 1 : settings.style == .ship ? 0.85 : max(0.25, 0.8 - Double(distance) * 0.12))
-                                                .scaleEffect(settings.style.usesFisheye ? max(0.68, 1 - CGFloat(distance) * 0.1) : 1, anchor: .leading)
-                                                .blur(radius: settings.style.usesBlur && !reduceMotion ? min(2, Double(distance) * 0.55) : 0)
+                                            lyricLabel(line, active: active, distance: distance,
+                                                       strength: line.id == active ? lensStrength : nil)
                                                 .frame(maxWidth: .infinity, alignment: .leading)
                                         }.buttonStyle(.plain).id(line.id).accessibilityLabel("Seek to \(line.text)")
                                     }
@@ -78,6 +75,11 @@ struct TimedLyricsView: View {
         .onChange(of: model.lyrics, initial: true) { _, _ in refreshEmojis() }
         .onChange(of: model.title) { _, _ in refreshEmojis() }
         .onChange(of: model.artist) { _, _ in refreshEmojis() }
+        .onAppear {
+            // swift run dev sessions ship the raw .metal resource without a
+            // compiled library; gate the effect instead of failing at draw time.
+            metalReady = Bundle.module.url(forResource: "default", withExtension: "metallib") != nil
+        }
     }
 
     private func refreshEmojis() {
@@ -85,6 +87,77 @@ struct TimedLyricsView: View {
         emojis = Dictionary(uniqueKeysWithValues: model.lyrics.compactMap { line in
             LyricEmoji.resolve(line: line.text, title: model.title, artist: model.artist).map { (line.id, $0) }
         })
+    }
+
+    /// Lens strength for the active line: ramps in over the line's opening,
+    /// breathes gently, and decays to zero as the line is sung out. nil means
+    /// "no effect attached" — under Reduce Motion, without the compiled Metal
+    /// library, or when strength is visually identity.
+    private func fisheyeStrength(for active: Int?, at position: Double) -> Double? {
+        guard settings.style.usesFisheye, metalReady, !reduceMotion,
+              let active, model.lyrics.indices.contains(active) else { return nil }
+        let line = model.lyrics[active]
+        let next = active + 1 < model.lyrics.count ? model.lyrics[active + 1].time : line.time + 6
+        let duration = max(next - line.time, 1)
+        let progress = min(1, max(0, (position - line.time) / duration))
+        let strength = FisheyeStrength.active(progress: progress, elapsed: position - line.time)
+        return strength > 0.02 ? strength : nil
+    }
+
+    /// The fisheye shader with size bound per call; SwiftUI auto-injects
+    /// `position` (the omitted first Metal parameter), so the Swift args fill
+    /// size, strength, power in the kernel's signature order.
+    private func fisheyeShader(strength: Float) -> (CGSize) -> Shader {
+        { size in
+            ShaderLibrary.bundle(.module).fisheye(
+                .float2(Float(size.width), Float(size.height)),
+                .float(strength), .float(1.6))
+        }
+    }
+
+    @ViewBuilder
+    private func lyricLabel(_ line: LyricLine, active: Int?, distance: Int, strength: Double?) -> some View {
+        let icon = settings.style.usesEmoji ? emojis[line.id] : nil
+        let lensed = settings.style.usesFisheye && !reduceMotion && metalReady && strength != nil
+        let fallbackScale: CGFloat = lensed ? 1
+            : (settings.style.usesFisheye ? max(0.68, 1 - CGFloat(distance) * 0.1) : 1)
+        let bodyText = Text(line.text.isEmpty ? "• • •" : line.text)
+            .font(settings.typeface.font(size: size)).tracking(-0.4)
+            .multilineTextAlignment(.leading)
+            .foregroundStyle(color(for: line.id, active: active))
+            .opacity(active == line.id ? 1 : settings.style == .ship ? 0.85 : max(0.25, 0.8 - Double(distance) * 0.12))
+            .scaleEffect(fallbackScale, anchor: .leading)
+            .blur(radius: settings.style.usesBlur && !reduceMotion ? min(2, Double(distance) * 0.55) : 0)
+        // The lens owns the active line at full scale; the old scaleEffect
+        // falloff covers every other line plus the fallback paths. The
+        // displacement in Fisheye.metal is bounded by half-size * strength,
+        // which is exactly the maxSampleOffset set here.
+        let lensedText = Group {
+            if lensed, let strength {
+                let lens = fisheyeShader(strength: Float(strength))
+                bodyText.visualEffect { content, proxy in
+                    let size = proxy.size
+                    let sample = CGSize(width: CGFloat(strength) * size.width * 0.5,
+                                        height: CGFloat(strength) * size.height * 0.5)
+                    return content.distortionEffect(lens(size), maxSampleOffset: sample)
+                }
+            } else {
+                bodyText
+            }
+        }
+        if icon != nil {
+            HStack(alignment: .top, spacing: 10) {
+                if let icon {
+                    Text(icon).font(.system(size: size * 0.62))
+                        .opacity(active == line.id ? 0.95 : 0.38)
+                        .offset(y: -size * 0.06)
+                        .accessibilityHidden(true)
+                }
+                lensedText
+            }
+        } else {
+            lensedText
+        }
     }
 
     private func center(_ active: Int?, proxy: ScrollViewProxy) {

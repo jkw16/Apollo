@@ -2,11 +2,21 @@ import SwiftUI
 import AppKit
 
 enum LyricStyle: String, CaseIterable, Codable, Identifiable {
-    case ship = "Ship", fisheye = "Fisheye", visual = "Visual", fisheyeVisual = "Fisheye Visual"
+    case ship = "Ship", visual = "Visual"
     var id: String { rawValue }
-    var usesFisheye: Bool { self == .fisheye || self == .fisheyeVisual }
-    var usesBlur: Bool { self == .visual || self == .fisheyeVisual }
-    var usesEmoji: Bool { self == .visual || self == .fisheyeVisual }
+    var usesBlur: Bool { self == .visual }
+    var usesEmoji: Bool { self == .visual }
+    var usesWordFlow: Bool { self == .visual }
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        // Migrate retired styles without resetting the other appearance settings.
+        switch value {
+        case "Ship", "Fisheye": self = .ship
+        default: self = .visual
+        }
+    }
+
 }
 
 enum LyricTypeface: String, CaseIterable, Codable, Identifiable {

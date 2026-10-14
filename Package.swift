@@ -9,8 +9,7 @@ let package = Package(
         .target(name: "ApolloCore"),
         .executableTarget(
             name: "Apollo",
-            dependencies: ["ApolloCore"],
-            resources: [.process("Shaders/Fisheye.metal")]
+            dependencies: ["ApolloCore"]
         ),
         .testTarget(name: "ApolloCoreTests", dependencies: ["ApolloCore"])
     ]

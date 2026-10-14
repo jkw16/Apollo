@@ -62,7 +62,7 @@ Successful results are cached in Apollo’s local library for subsequent playbac
 
 Click **Timed lyrics** in the sidebar to open the customization popover. It includes:
 
-- **Style:** Ship (flat scrolling), Fisheye (distance-based scaling), Visual (soft focus/fading with contextual emoji popups), and Fisheye Visual (scaling, soft focus, and emoji popups). When a line becomes active, its emoji pops up independently in the upper-right of the lyric viewport, drifts, and fades after 2.7 seconds. Emojis never sit in the lyric rows or scroll with the text. Ship and Fisheye have no emoji effects.
+- **Style:** Ship (scrolling lyric lines) and Visual (a centered word-by-word stack with highlighted words and contextual symbols). Word timing is estimated when the source only provides line timestamps.
 - **Font:** SF Pro, SF Rounded, New York, Helvetica Neue, Avenir Next, Futura, and Didot, with live typeface previews.
 - **Text Size:** 20–60 points, with a reset to 33 points. Compact and immersive presentations scale relative to this value.
 - **Keep Screen Awake:** prevents display idle sleep only while music is playing and lyrics are visible. Pausing, hiding lyrics, or switching it off releases the assertion. It does not override manual sleep or lock.

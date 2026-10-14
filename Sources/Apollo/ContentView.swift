@@ -50,7 +50,7 @@ struct ContentView: View {
             eyebrow("SET THE SCENE").padding(.bottom, 16)
             sideAction("Timed lyrics", icon: "text.alignleft") { model.showLyricOptions.toggle() }
                 .popover(isPresented: $model.showLyricOptions, arrowEdge: .trailing) { LyricOptionsView(model: model) }
-            sideAction("Motion artwork", icon: "rectangle.on.rectangle", action: model.importMovie)
+            sideAction("Motion artwork", icon: "rectangle.on.rectangle", active: model.ambientScene == .wallOfSound, action: model.toggleWall)
             sideAction("YouTube video", icon: "play.rectangle") { model.showSettings = true }
             Spacer()
             VStack(alignment: .leading, spacing: 10) {
@@ -83,12 +83,17 @@ struct ContentView: View {
 
     private var stage: some View {
         GeometryReader { geometry in
+            let wallActive = model.ambientScene == .wallOfSound && !model.coverCatalog.covers.isEmpty
             ZStack {
-                Aurora()
+                if wallActive {
+                    WallOfSound(covers: model.coverCatalog.covers, directory: model.coverDirectory)
+                } else {
+                    Aurora()
+                }
                 if model.videoID == nil {
                     if let player = model.moviePlayer {
                         MotionArtwork(player: player).allowsHitTesting(false)
-                    } else if let art = model.artwork {
+                    } else if let art = model.artwork, !wallActive {
                         Image(nsImage: art).resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped().blur(radius: 45).opacity(0.5)
                     }
                     LinearGradient(colors: [.black.opacity(0.08), .black.opacity(0.45)], startPoint: .top, endPoint: .bottom)
@@ -200,6 +205,21 @@ struct ContentView: View {
                     HStack { Text("Intensity"); Slider(value: $model.intensity, in: 0.1...1) }
                     Text("Ambient color animation; not an audio spectrum. Respects Reduce Motion.").font(.caption).foregroundStyle(.secondary)
                     HStack { Button("Import motion artwork…", action: model.importMovie); if model.moviePlayer != nil { Button("Remove artwork", action: model.removeMovie) } }
+                    Divider().overlay(.white.opacity(0.08))
+                    Picker("Background", selection: $model.ambientScene) {
+                        ForEach(AmbientScene.allCases) { scene in Text(scene.label).tag(scene) }
+                    }.pickerStyle(.segmented).fixedSize()
+                    if model.ambientScene == .wallOfSound {
+                        Text("A drifting wall of \(model.coverCatalog.covers.count) album covers behind the room. Respects Reduce Motion.").font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Button("Import album covers…", action: model.importCovers)
+                            Button("Sync from library", action: model.syncCovers).disabled(model.syncInFlight)
+                        }
+                        Toggle("Sync album covers automatically", isOn: $model.autoSyncCovers)
+                        if let status = model.coverStatus {
+                            Text(status).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }.padding(10)
             }
             GroupBox("LYRICS") {
@@ -228,8 +248,14 @@ struct ContentView: View {
     private func iconButton(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).font(.system(size: 13)).frame(width: 26, height: 26) }.buttonStyle(.plain).foregroundStyle(.white.opacity(0.65)).help(title).accessibilityLabel(title)
     }
-    private func sideAction(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Label(title, systemImage: icon).font(.system(size: 12)).foregroundStyle(.white.opacity(0.5)).padding(.vertical, 11) }.buttonStyle(.plain)
+    private func sideAction(_ title: String, icon: String, active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Label(title, systemImage: icon).font(.system(size: 12)).foregroundStyle(active ? .white : .white.opacity(0.5))
+                Spacer()
+                if active { Circle().fill(apolloOrange).frame(width: 4, height: 4) }
+            }.padding(.vertical, 11)
+        }.buttonStyle(.plain)
     }
     private func time(_ seconds: Double) -> String { let total = Int(max(0, seconds)); return String(format: "%d:%02d", total / 60, total % 60) }
 }

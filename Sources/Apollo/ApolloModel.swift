@@ -49,11 +49,44 @@ struct TrackAssets: Codable {
     @Published var videoID: String?
     @Published var videoInput = ""
     @Published var lyricOffset: Double = 0
-    private let bridge = DesktopBridge()
+    @Published var ambientScene: AmbientScene = ((UserDefaults.standard.object(forKey: "ambientScene") as? String)
+        .flatMap(AmbientScene.init(rawValue:))) ?? .aurora {
+        didSet { UserDefaults.standard.set(ambientScene.rawValue, forKey: "ambientScene") }
+    }
+    @Published var autoSyncCovers = UserDefaults.standard.object(forKey: "autoSyncCovers") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoSyncCovers, forKey: "autoSyncCovers") }
+    }
+    @Published var coverCatalog = CoverManifest()
+    @Published var coverStatus: String?
+    var syncInFlight = false
+    let bridge = DesktopBridge()
     private var pollTask: Task<Void, Never>?
     private var movieObserver: NSObjectProtocol?
     private var assets: [String: TrackAssets] = [:]
     private let directory: URL
+    var supportDirectory: URL { directory }
+    var coverDirectory: URL { directory.appendingPathComponent("covers") }
+    /// Toggling the sidebar "Motion artwork" action: the wall of sound is
+    /// shown as the background (imported video still wins), lyrics unchanged.
+    func toggleWall() {
+        ambientScene = ambientScene == .wallOfSound ? .aurora : .wallOfSound
+        if ambientScene == .wallOfSound { seedCoversIfNeeded() }
+    }
+
+    /// First activation with an empty catalog: silently import the user's
+    /// collected albums.json when it happens to be on disk; otherwise the
+    /// catalog grows from passive capture while they listen.
+    private func seedCoversIfNeeded() {
+        guard coverCatalog.covers.isEmpty, !UserDefaults.standard.bool(forKey: "wallSeeded") else { return }
+        UserDefaults.standard.set(true, forKey: "wallSeeded")
+        let collected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("wall-of-sound/collector/data/albums.json")
+        if FileManager.default.fileExists(atPath: collected.path) {
+            importCoversFile(collected)
+        } else {
+            coverStatus = "The wall grows from the covers of songs you play. Import an albums.json to fill it faster."
+        }
+    }
     private var generation = UUID()
 
     static let demoLyrics = """
@@ -77,8 +110,11 @@ struct TrackAssets: Codable {
             if FileManager.default.fileExists(atPath: file.path) {
                 assets = try JSONDecoder().decode([String: TrackAssets].self, from: Data(contentsOf: file))
             }
+            try FileManager.default.createDirectory(at: coverDirectory, withIntermediateDirectories: true)
         } catch { self.error = "Could not load Apollo’s local library: \(error.localizedDescription)" }
+        loadCovers()
         startPolling()
+        if autoSyncCovers { syncCovers() }
     }
 
     func select(_ next: MusicSource) {
@@ -201,11 +237,15 @@ struct TrackAssets: Codable {
                 loadAssets()
                 if selected == .apple, let data = try? await bridge.artwork(), token == generation, trackID == snapshot.id {
                     artwork = NSImage(data: data)
+                    // The wall's catalog grows from what the user actually listens to.
+                    captureCover(data, artist: snapshot.artist, album: snapshot.album)
                 } else if selected == .spotify, let url = URL(string: snapshot.artworkURL), url.scheme == "https" {
                     var request = URLRequest(url: url); request.timeoutInterval = 8
                     if let (data, response) = try? await URLSession.shared.data(for: request),
                        (response as? HTTPURLResponse)?.statusCode == 200, data.count < 20_000_000,
-                       token == generation, trackID == snapshot.id { artwork = NSImage(data: data) }
+                       token == generation, trackID == snapshot.id {
+                        artwork = NSImage(data: data); captureCover(data, artist: snapshot.artist, album: snapshot.album)
+                    }
                 }
             }
             guard token == generation else { return }

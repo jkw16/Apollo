@@ -19,6 +19,7 @@ import AppKit
             CommandGroup(after: .newItem) {
                 Button("Import Timed Lyrics…", action: model.importLyrics).keyboardShortcut("l", modifiers: [.command, .shift])
                 Button("Import Motion Artwork…", action: model.importMovie).keyboardShortcut("i", modifiers: [.command, .shift])
+                Button("Import Album Covers…", action: model.importCovers)
             }
             CommandMenu("Playback") {
                 Button("Play / Pause") { model.control(.toggle) }.keyboardShortcut("p", modifiers: .command)

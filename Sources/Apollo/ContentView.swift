@@ -83,12 +83,12 @@ struct ContentView: View {
 
     private var stage: some View {
         GeometryReader { geometry in
-            let wallActive = model.ambientScene == .wallOfSound && !model.coverCatalog.covers.isEmpty
+            let wallActive = model.ambientScene == .wallOfSound && model.moviePlayer == nil && model.videoID == nil
             ZStack {
                 if wallActive {
-                    WallOfSound(covers: model.coverCatalog.covers, directory: model.coverDirectory)
+                    WallOfSound(covers: model.wallCovers, directory: model.coverDirectory, playing: model.clock.playing)
                 } else {
-                    Aurora()
+                    Aurora(playing: model.clock.playing && NSApp.isActive)
                 }
                 if model.videoID == nil {
                     if let player = model.moviePlayer {
@@ -144,7 +144,7 @@ struct ContentView: View {
                     }.padding(26)
                 }
                 // The glow stays outside the embedded player's rectangle.
-                EdgeGlow(intensity: model.intensity)
+                EdgeGlow(intensity: model.intensity, playing: model.clock.playing && NSApp.isActive)
             }.clipShape(RoundedRectangle(cornerRadius: 20))
         }
     }
@@ -194,6 +194,7 @@ struct ContentView: View {
     }
 
     private var settings: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 22) {
             HStack { Text("Make it your space.").font(.title2.bold()); Spacer(); Button("Done") { model.showSettings = false }.keyboardShortcut(.cancelAction) }
             if let error = model.error {
@@ -201,7 +202,8 @@ struct ContentView: View {
             }
             GroupBox("LIGHT & MOTION") {
                 VStack(alignment: .leading, spacing: 14) {
-                    Toggle("Glow around every display", isOn: $model.ringEnabled)
+                    Toggle("Screen edge glow", isOn: $model.ringEnabled)
+                    EdgeDisplayPicker(model: model)
                     HStack { Text("Intensity"); Slider(value: $model.intensity, in: 0.1...1) }
                     Text("Ambient color animation; not an audio spectrum. Respects Reduce Motion.").font(.caption).foregroundStyle(.secondary)
                     HStack { Button("Import motion artwork…", action: model.importMovie); if model.moviePlayer != nil { Button("Remove artwork", action: model.removeMovie) } }
@@ -210,12 +212,17 @@ struct ContentView: View {
                         ForEach(AmbientScene.allCases) { scene in Text(scene.label).tag(scene) }
                     }.pickerStyle(.segmented).fixedSize()
                     if model.ambientScene == .wallOfSound {
-                        Text("A drifting wall of \(model.coverCatalog.covers.count) album covers behind the room. Respects Reduce Motion.").font(.caption).foregroundStyle(.secondary)
+                        Text("\(model.wallCovers.count) covers from the active playlist. Checks for updates every 30 seconds while the wall is visible. Artwork fills in small batches.").font(.caption).foregroundStyle(.secondary)
                         HStack {
                             Button("Import album covers…", action: model.importCovers)
-                            Button("Sync from library", action: model.syncCovers).disabled(model.syncInFlight)
+                            Button("Refresh playlist", action: model.syncCovers).disabled(model.syncInFlight)
                         }
                         Toggle("Sync album covers automatically", isOn: $model.autoSyncCovers)
+                        Text("Shows up to 120 album covers from the first 1,000 playlist tracks. Animation pauses while hidden or playback is paused, and slows in Low Power Mode.").font(.caption).foregroundStyle(.secondary)
+                        SpotifySetupView(connection: model.spotifyConnection) {
+                            model.resetCoverSync()
+                            Task { await model.spotifyPlaylists.reset() }
+                        }
                         if let status = model.coverStatus {
                             Text(status).font(.caption).foregroundStyle(.secondary)
                         }
@@ -241,7 +248,8 @@ struct ContentView: View {
                 }.padding(10)
             }
             Text("Apollo doesn’t fetch Apple’s proprietary animated covers or lyrics. Use media you own or have permission to use. Spotify’s developer policy restricts synchronizing its recordings with visual media; distribution of that experience needs rights and platform review.").font(.caption).foregroundStyle(.secondary)
-        }.padding(28).frame(width: 570).preferredColorScheme(.dark)
+        }.padding(28)
+        }.frame(width: 600, height: min(850, (NSScreen.main?.visibleFrame.height ?? 900) - 80)).preferredColorScheme(.dark)
     }
 
     private func eyebrow(_ text: String) -> some View { Text(text).font(.system(size: 9, weight: .semibold)).tracking(1.7).foregroundStyle(.white.opacity(0.35)) }

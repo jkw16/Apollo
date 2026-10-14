@@ -44,6 +44,12 @@ struct TrackAssets: Codable {
     @Published var showLyrics = true
     @Published var showSettings = false
     @Published var ringEnabled = false
+    @Published var ringAllDisplays = UserDefaults.standard.object(forKey: "ringAllDisplays") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(ringAllDisplays, forKey: "ringAllDisplays") }
+    }
+    @Published var ringDisplayIDs = Set(UserDefaults.standard.stringArray(forKey: "ringDisplayIDs") ?? []) {
+        didSet { UserDefaults.standard.set(Array(ringDisplayIDs), forKey: "ringDisplayIDs") }
+    }
     @Published var intensity = 0.75
     @Published var moviePlayer: AVPlayer?
     @Published var videoID: String?
@@ -51,14 +57,25 @@ struct TrackAssets: Codable {
     @Published var lyricOffset: Double = 0
     @Published var ambientScene: AmbientScene = ((UserDefaults.standard.object(forKey: "ambientScene") as? String)
         .flatMap(AmbientScene.init(rawValue:))) ?? .aurora {
-        didSet { UserDefaults.standard.set(ambientScene.rawValue, forKey: "ambientScene") }
+        didSet { UserDefaults.standard.set(ambientScene.rawValue, forKey: "ambientScene"); resetCoverSync() }
     }
     @Published var autoSyncCovers = UserDefaults.standard.object(forKey: "autoSyncCovers") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(autoSyncCovers, forKey: "autoSyncCovers") }
+        didSet { UserDefaults.standard.set(autoSyncCovers, forKey: "autoSyncCovers"); resetCoverSync() }
     }
     @Published var coverCatalog = CoverManifest()
     @Published var coverStatus: String?
-    var syncInFlight = false
+    @Published var syncInFlight = false
+    @Published var activeCoverKeys = Set<String>()
+    let spotifyConnection = SpotifyConnection()
+    let spotifyPlaylists = SpotifyPlaylistClient()
+    let coverBridge = DesktopBridge()
+    lazy var coverStore = CoverStore(directory: directory)
+    var coverSyncTask: Task<Void, Never>?
+    var coverGeneration = UUID()
+    var nextCoverSync = Date.distantPast
+    var coverFailures: [String: Date] = [:]
+    private var playlistContext = ""
+    var wallCovers: [CoverRecord] { WallBudget.select(coverCatalog.covers, keys: activeCoverKeys) }
     let bridge = DesktopBridge()
     private var pollTask: Task<Void, Never>?
     private var movieObserver: NSObjectProtocol?
@@ -70,23 +87,9 @@ struct TrackAssets: Codable {
     /// shown as the background (imported video still wins), lyrics unchanged.
     func toggleWall() {
         ambientScene = ambientScene == .wallOfSound ? .aurora : .wallOfSound
-        if ambientScene == .wallOfSound { seedCoversIfNeeded() }
+        requestCoverSync()
     }
 
-    /// First activation with an empty catalog: silently import the user's
-    /// collected albums.json when it happens to be on disk; otherwise the
-    /// catalog grows from passive capture while they listen.
-    private func seedCoversIfNeeded() {
-        guard coverCatalog.covers.isEmpty, !UserDefaults.standard.bool(forKey: "wallSeeded") else { return }
-        UserDefaults.standard.set(true, forKey: "wallSeeded")
-        let collected = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("wall-of-sound/collector/data/albums.json")
-        if FileManager.default.fileExists(atPath: collected.path) {
-            importCoversFile(collected)
-        } else {
-            coverStatus = "The wall grows from the covers of songs you play. Import an albums.json to fill it faster."
-        }
-    }
     private var generation = UUID()
 
     static let demoLyrics = """
@@ -114,7 +117,7 @@ struct TrackAssets: Codable {
         } catch { self.error = "Could not load Apollo’s local library: \(error.localizedDescription)" }
         loadCovers()
         startPolling()
-        if autoSyncCovers { syncCovers() }
+
     }
 
     func select(_ next: MusicSource) {
@@ -122,6 +125,7 @@ struct TrackAssets: Codable {
             if next == .apple { showMusicSetup = true }
             return
         }
+        resetCoverSync(); playlistContext = ""
         cancelLyricLookup()
         plainLyrics = ""; lyricStatus = "Play a song to see its lyrics."
         generation = UUID()
@@ -215,6 +219,7 @@ struct TrackAssets: Codable {
         guard connected || isConnecting else { return }
         let selected = source
         guard NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == selected.bundleID }) else {
+            resetCoverSync()
             connected = false; isConnecting = false; freeze(); status = "\(selected.rawValue) closed"; return
         }
         do {
@@ -224,13 +229,20 @@ struct TrackAssets: Codable {
             connected = true; isConnecting = false; automationDenied = false
             guard let snapshot else {
                 cancelLyricLookup(); plainLyrics = ""; lyricStatus = "Play a song to see its lyrics."
+                resetCoverSync()
                 freeze(); status = "Connected · Play a song in \(selected.rawValue)"; lyrics = []; artwork = nil; trackID = ""
                 title = "Ready when you are"; artist = "Play a song in \(selected.rawValue)"; album = ""
                 clearMovie(); return
             }
             let changed = snapshot.id != trackID
+            if changed || snapshot.playlistID != playlistContext {
+                resetCoverSync()
+                playlistContext = snapshot.playlistID
+            }
             trackID = snapshot.id; title = snapshot.title; artist = snapshot.artist; album = snapshot.album
             clock = snapshot.clock
+            if activeCoverKeys.isEmpty { usePlayingAlbum() }
+            requestCoverSync()
             status = snapshot.clock.playing ? "Connected · \(selected.rawValue)" : "Paused · \(selected.rawValue)"
             if changed {
                 artwork = nil
@@ -252,6 +264,7 @@ struct TrackAssets: Codable {
             if clock.playing { moviePlayer?.play() } else { moviePlayer?.pause() }
         } catch {
             guard token == generation else { return }
+            resetCoverSync()
             connected = false; isConnecting = false; freeze(); status = "Connection needs attention"
             if case BridgeError.automationDenied = error { automationDenied = true }
             self.error = automationDenied

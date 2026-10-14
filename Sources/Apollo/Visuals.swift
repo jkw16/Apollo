@@ -6,9 +6,11 @@ import WebKit
 let apolloOrange = Color(red: 1, green: 0.43, blue: 0.24)
 
 struct Aurora: View {
+    var playing = true
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: ProcessInfo.processInfo.isLowPowerModeEnabled ? 1 / 12 : 1 / 24, paused: reduceMotion || !playing || scenePhase != .active)) { timeline in
             let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate / 8
             GeometryReader { proxy in
                 ZStack {
@@ -27,15 +29,16 @@ struct Aurora: View {
 
 struct EdgeGlow: View {
     var intensity: Double = 0.75
+    var playing = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: ProcessInfo.processInfo.isLowPowerModeEnabled ? 1 / 12 : 1 / 24, paused: reduceMotion || !playing)) { timeline in
             let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             let gradient = AngularGradient(colors: [apolloOrange, .pink, .purple, .cyan, apolloOrange], center: .center, angle: .degrees(t * 14))
             ZStack {
                 RoundedRectangle(cornerRadius: 22).stroke(gradient, lineWidth: 15).blur(radius: 14).opacity(intensity * 0.8)
                 RoundedRectangle(cornerRadius: 22).stroke(gradient, lineWidth: 3).opacity(intensity)
-            }.padding(5)
+            }.padding(5).drawingGroup()
         }.allowsHitTesting(false).accessibilityHidden(true)
     }
 }
@@ -45,19 +48,22 @@ struct EdgeGlow: View {
     private var observer: NSObjectProtocol?
     private var enabled = false
     private var intensity = 0.75
+    private var allDisplays = true
+    private var displayIDs = Set<String>()
     init() {
         observer = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rebuild() }
         }
     }
-    func update(enabled: Bool, intensity: Double) {
+    func update(enabled: Bool, intensity: Double, allDisplays: Bool, displayIDs: Set<String>) {
         self.enabled = enabled; self.intensity = intensity
+        self.allDisplays = allDisplays; self.displayIDs = displayIDs
         rebuild()
     }
     private func rebuild() {
         windows.forEach { $0.orderOut(nil) }; windows.removeAll()
         guard enabled else { return }
-        for screen in NSScreen.screens {
+        for screen in NSScreen.screens where allDisplays || displayIDs.contains(screen.edgeGlowID) {
             let panel = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.backgroundColor = .clear; panel.isOpaque = false; panel.hasShadow = false
             panel.ignoresMouseEvents = true; panel.level = .statusBar

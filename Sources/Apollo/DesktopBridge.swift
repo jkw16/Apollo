@@ -13,6 +13,7 @@ struct TrackSnapshot {
     let title: String
     let artist: String
     let album: String
+    let playlistID: String
     let artworkURL: String
     let clock: PlaybackClock
 }
@@ -49,17 +50,20 @@ actor DesktopBridge {
     func snapshot(_ source: MusicSource) throws -> TrackSnapshot? {
         let id = source == .apple ? "persistent ID" : "id"
         let artwork = source == .spotify ? "artwork url of t" : "\"\""
+        let playlist = source == .apple ? "try\nset contextID to persistent ID of current playlist\nend try" : ""
         let divisor = source == .spotify ? " / 1000" : ""
         let result = try run("""
         tell application id "\(source.bundleID)"
             if player state is stopped then return {}
             set t to current track
-            return {\(id) of t, name of t, artist of t, album of t, duration of t\(divisor), player position, (player state is playing), \(artwork)}
+            set contextID to ""
+            \(playlist)
+            return {\(id) of t, name of t, artist of t, album of t, duration of t\(divisor), player position, (player state is playing), \(artwork), contextID}
         end tell
         """)
-        guard result.numberOfItems == 8 else { return nil }
+        guard result.numberOfItems == 9 else { return nil }
         func string(_ i: Int) -> String { result.atIndex(i)?.stringValue ?? "" }
-        return TrackSnapshot(id: source.rawValue + ":" + string(1), title: string(2), artist: string(3), album: string(4), artworkURL: string(8),
+        return TrackSnapshot(id: source.rawValue + ":" + string(1), title: string(2), artist: string(3), album: string(4), playlistID: string(9), artworkURL: string(8),
             clock: PlaybackClock(position: result.atIndex(6)?.doubleValue ?? 0, duration: result.atIndex(5)?.doubleValue ?? 0, playing: result.atIndex(7)?.booleanValue ?? false))
     }
 
@@ -73,49 +77,55 @@ actor DesktopBridge {
         return result.data.isEmpty ? nil : result.data
     }
 
-    /// Every album in the Music library, deduplicated, as (artist, album).
-    /// Read-only; same Apple Events trust as the current-track snapshot.
-    func libraryAlbums() throws -> [(artist: String, album: String)] {
-        // Sentinel \x02 keeps parallel arrays aligned: list-to-text coercion
-        // drops missing values, and NSAppleScript returns the result before
-        // any console scrubbing, so the sentinel survives to parsing.
+    /// Reads only the current playlist, in bounded metadata pages. No library-wide scan.
+    func playlistHeader() throws -> (id: String, name: String, count: Int) {
         let result = try run("""
         tell application id "com.apple.Music"
-            set tNames to name of every track of library playlist 1
-            set tArtists to artist of every track of library playlist 1
-            set tAA to album artist of every track of library playlist 1
-            set tAlbums to album of every track of library playlist 1
+            set p to current playlist
+            return {persistent ID of p, name of p, count of tracks of p}
         end tell
-        repeat with lst in {tNames, tArtists, tAA, tAlbums}
-            repeat with i from 1 to count of lst
-                if item i of lst is missing value then set item i of lst to (character id 2)
-            end repeat
-        end repeat
-        set AppleScript's text item delimiters to (character id 31)
-        set sNames to tNames as text
-        set sArtists to tArtists as text
-        set sAA to tAA as text
-        set sAlbums to tAlbums as text
-        set AppleScript's text item delimiters to (character id 30)
-        return sNames & (character id 30) & sArtists & (character id 30) & sAA & (character id 30) & sAlbums
-        """, seconds: 120)
-        let raw = result.stringValue ?? ""
-        let parts = raw.split(separator: Character("\u{1E}"), omittingEmptySubsequences: false)
-        guard parts.count == 4 else { return [] }
-        let clean = Array(parts.map {
-            $0.split(separator: Character("\u{1F}"), omittingEmptySubsequences: false)
-              .map { $0.replacingOccurrences(of: "\u{02}", with: "").trimmingCharacters(in: .whitespacesAndNewlines) }
-        })
-        var seen = Set<String>()
-        var albums: [(artist: String, album: String)] = []
-        for i in 0..<clean[3].count where !clean[3][i].isEmpty {
-            let artist = clean[2].indices.contains(i) && !clean[2][i].isEmpty ? clean[2][i] : (clean[1].indices.contains(i) ? clean[1][i] : "Unknown Artist")
-            let key = (artist.lowercased(), clean[3][i].lowercased())
-            if seen.insert("\(key.0)~\(key.1)").inserted {
-                albums.append((artist, clean[3][i]))
-            }
+        """, seconds: 3)
+        guard result.numberOfItems == 3 else { throw BridgeError.scripting("Play a playlist in Music to fill the wall.") }
+        return (result.atIndex(1)?.stringValue ?? "", result.atIndex(2)?.stringValue ?? "Playlist", Int(result.atIndex(3)?.int32Value ?? 0))
+    }
+
+    func playlistPage(id: String, start: Int, end: Int) throws -> [WallAlbum] {
+        guard validID(id), start >= 1, end >= start, end - start < 100 else { return [] }
+        let result = try run("""
+        tell application id "com.apple.Music"
+            set p to current playlist
+            if persistent ID of p is not "\(id)" then return {}
+            return {persistent ID of tracks \(start) thru \(end) of p, album artist of tracks \(start) thru \(end) of p, artist of tracks \(start) thru \(end) of p, album of tracks \(start) thru \(end) of p}
+        end tell
+        """, seconds: 3)
+        guard result.numberOfItems == 4 else { throw BridgeError.scripting("Playlist changed; retrying shortly.") }
+        let titles = result.atIndex(4)
+        return (0..<(titles?.numberOfItems ?? 0)).compactMap { index in
+            let i = index + 1
+            let title = titles?.atIndex(i)?.stringValue ?? ""
+            guard !title.isEmpty else { return nil }
+            let aa = result.atIndex(2)?.atIndex(i)?.stringValue ?? ""
+            return WallAlbum(artist: aa.isEmpty ? result.atIndex(3)?.atIndex(i)?.stringValue ?? "" : aa,
+                             title: title, trackID: result.atIndex(1)?.atIndex(i)?.stringValue)
         }
-        return albums
+    }
+
+    func playlistArtwork(playlistID: String, trackID: String) throws -> Data? {
+        guard validID(playlistID), validID(trackID) else { return nil }
+        let result = try run("""
+        tell application id "com.apple.Music"
+            set p to current playlist
+            if persistent ID of p is not "\(playlistID)" then return ""
+            set t to first track of p whose persistent ID is "\(trackID)"
+            if (count of artworks of t) is 0 then return ""
+            return raw data of artwork 1 of t
+        end tell
+        """, seconds: 2)
+        return result.data.isEmpty ? nil : result.data
+    }
+
+    private func validID(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 32 && value.allSatisfy { $0.isHexDigit }
     }
 
     enum Command { case toggle, next, previous, seek(Double) }

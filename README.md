@@ -114,3 +114,18 @@ Tests cover timestamp fractions/offsets/repetition, seeking backwards, blank int
 - Signed/notarized universal releases, hardware testing, and update delivery.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The MIT license covers Apollo’s code and original demo assets; third-party music, lyrics, artwork, and videos retain their own rights.
+
+
+### Playlist-aware album wall
+
+The wall follows the current Apple Music playlist instead of scanning the whole library at startup. While Apollo is visible and the wall is selected, it checks every 30 seconds, replaces playlist membership (including removals), and fetches missing covers in batches of eight. Changes of track/source cancel stale work. A new playlist can take several checks to fill. Unavailable artwork is retried after five minutes. No developer's cover collection is bundled or automatically imported.
+
+Spotify desktop playback still works without API setup. To enable playlist reads, open Settings → Wall of Sound → Spotify playlist connection, create a Spotify developer app, add `http://127.0.0.1:43827/callback` as a redirect URI, and enter its **Client ID only**. The app uses PKCE and a temporary loopback-only callback listener; tokens stay in macOS Keychain. No client secret is used. The API permits playlist-item reads only for playlists the signed-in user owns or collaborates on. Other playback contexts, access errors, or a different active Spotify device fall back to the local playing album with a visible status. Disconnect removes saved tokens. This source build uses each developer's own Client ID; a broadly distributed release needs an approved shared Spotify application.
+
+Resource limits: first 1,000 playlist tracks / 120 distinct album covers, 300-pixel thumbnails, 600 cached cover records on disk, sequential artwork work, and a 30-second automatic check interval while the track and source remain unchanged. The wall holds at most 120 decoded thumbnails (about 42 MiB of pixels, plus framework/GPU overhead), reuses loaded thumbnails, and cancels loads on disappearance. Animation runs at 24 fps, drops to 12 fps in Low Power Mode, and pauses while playback is paused, the app is inactive/occluded, or Reduce Motion is enabled. These limits reduce resource use; they are not a guarantee of zero impact on every Mac.
+
+Spotify references: [PKCE sign-in](https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow), [playlist access limitations](https://developer.spotify.com/documentation/web-api/reference/get-playlists-items), [redirect URI setup](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri).
+
+### Edge glow displays
+
+In Settings → Light & Motion, enable Screen edge glow and choose All displays or Selected displays. Selected displays exposes one checkbox per connected screen. Choices are saved by display UUID and restored when screens reconnect; newly attached displays stay off in selected mode until checked.

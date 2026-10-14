@@ -1,124 +1,108 @@
-// The wall of sound: square album covers in columns that drift very
-// slowly in alternating directions, a SwiftUI port of wall-of-sound's
-// wall.js / wall.css. Decorative only — hit testing and accessibility
-// are disabled, and Reduce Motion freezes it into a still collage.
 import SwiftUI
 import AppKit
+import ImageIO
 import ApolloCore
 
-private let placeholderTint = Color(red: 0.09, green: 0.085, blue: 0.11)
-private let wallBackdrop = Color(red: 0.05, green: 0.045, blue: 0.06)
+/// Thumbnail work is cancellable, serial, and bounded to 120 × 300px images
+/// (about 42 MiB of decoded pixels, excluding framework/GPU overhead).
+@MainActor private final class WallImages: ObservableObject {
+    @Published var images: [String: NSImage] = [:]
+    func load(_ covers: [CoverRecord], directory: URL) async {
+        let existing = images
+        let worker = Task.detached(priority: .utility) {
+            var result: [String: NSImage] = [:]
+            for record in covers.prefix(WallBudget.albums) {
+                guard !Task.isCancelled else { return result }
+                if let cached = existing[record.file] { result[record.file] = cached; continue }
+                // Files come from the app's cache; never decode original-size artwork.
+                guard let source = CGImageSourceCreateWithURL(directory.appendingPathComponent(record.file) as CFURL, nil),
+                      let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceThumbnailMaxPixelSize: 300,
+                        kCGImageSourceShouldCacheImmediately: true
+                      ] as CFDictionary) else { continue }
+                result[record.file] = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+            }
+            return result
+        }
+        let result = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+        guard !Task.isCancelled else { return }
+        images = result
+    }
+}
 
 struct WallOfSound: View {
     let covers: [CoverRecord]
     let directory: URL
+    let playing: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var cache = NSCache<NSString, NSImage>()
-    @State private var loaded = 0
-    @State private var deck: [Int] = []
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var loader = WallImages()
+    @State private var visible = true
+    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var phaseTime = Date().timeIntervalSinceReferenceDate
+    @State private var lastTick: Date?
 
+    private var paused: Bool { reduceMotion || !playing || scenePhase != .active || !visible }
     var body: some View {
-        GeometryReader { proxy in
-            let vw = max(WallGeometry.tile, proxy.size.width)
-            let vh = max(1, proxy.size.height)
+        GeometryReader { geometry in
+            let width = max(WallGeometry.tile, geometry.size.width)
+            let height = max(1, geometry.size.height)
+            let columns = WallGeometry.columns(width: width)
+            let rows = WallGeometry.tilesPerColumn(height: height)
             ZStack {
-                wallBackdrop
-                TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
-                    // Like Aurora: freeze t at 0 under Reduce Motion so the
-                    // still collage keeps the columns' varied phases instead
-                    // of collapsing into an aligned grid.
-                    let t = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-                    let cols = WallGeometry.columns(width: vw)
-                    let perCol = WallGeometry.tilesPerColumn(height: vh)
+                Color(red: 0.05, green: 0.045, blue: 0.06)
+                TimelineView(.animation(minimumInterval: lowPower ? 1.0 / 12 : 1.0 / 24, paused: paused)) { timeline in
                     HStack(spacing: WallGeometry.gap) {
-                        ForEach(0..<cols, id: \.self) { column in
-                            WallColumn(deck: deck, covers: covers, column: column, perColumn: perCol,
-                                       directory: directory, cache: cache, loaded: loaded,
-                                       up: column % 2 == 0,
-                                       phase: WallGeometry.phase(time: t, column: column),
-                                       bleed: -0.22 * vh)
+                        ForEach(0..<columns, id: \.self) { column in
+                            WallColumn(covers: covers, images: loader.images, column: column, rows: rows)
+                                .offset(y: -0.22 * height + WallGeometry.offset(
+                                    phase: WallGeometry.phase(time: reduceMotion ? 0 : phaseTime, column: column),
+                                    height: Double(rows) * (WallGeometry.tile + WallGeometry.gap), up: column % 2 == 0))
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .top)
+                    .onChange(of: timeline.date) { _, now in
+                        if !paused, let lastTick { phaseTime += min(0.1, max(0, now.timeIntervalSince(lastTick))) }
+                        lastTick = now
+                    }
                 }
-            }
+            }.clipped()
         }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-        .onAppear { refreshDeck(); fillCache() }
-        .onChange(of: covers) { _, _ in refreshDeck(); fillCache() }
-    }
-
-    private func refreshDeck() {
-        guard !covers.isEmpty else { deck = []; return }
-        deck = wallShuffled(covers.count, rng: { Int.random(in: 0..<$0) })
-    }
-
-    private func fillCache() {
-        guard !covers.isEmpty else { return }
-        let manifest = covers
-        let target = directory
-        let imageCache = cache
-        Task.detached(priority: .utility) {
-            for record in manifest where imageCache.object(forKey: record.file as NSString) == nil {
-                if let image = NSImage(contentsOf: target.appendingPathComponent(record.file)) {
-                    imageCache.setObject(image, forKey: record.file as NSString, cost: estimateCost(image))
-                }
-            }
-            await MainActor.run {
-                if !manifest.isEmpty { loaded += 1 }
-            }
+        .allowsHitTesting(false).accessibilityHidden(true)
+        .task(id: covers.map(\.file)) { await loader.load(covers, directory: directory) }
+        .onChange(of: paused) { _, _ in lastTick = nil }
+        .onAppear { updateVisibility() }
+        .onDisappear { loader.images = [:] }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { _ in updateVisibility() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in
+            lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         }
+    }
+    private func updateVisibility() {
+        visible = NSApp.windows.contains { $0.identifier?.rawValue == "apollo" && $0.occlusionState.contains(.visible) && !$0.isMiniaturized }
     }
 }
 
-/// One drifting column: a stack built once, rendered as two copies so the
-/// loop wraps seamlessly. The offset sits OUTSIDE the drawingGroup — the
-/// texture never changes per tick; only the column's transform moves.
 private struct WallColumn: View {
-    let deck: [Int]
     let covers: [CoverRecord]
+    let images: [String: NSImage]
     let column: Int
-    let perColumn: Int
-    let directory: URL
-    let cache: NSCache<NSString, NSImage>
-    let loaded: Int
-    let up: Bool
-    let phase: Double
-    let bleed: Double
-
+    let rows: Int
     var body: some View {
         VStack(spacing: 0) {
-            // Two full copies; every tile carries the bottom padding rather
-            // than using VStack spacing, so the track is exactly 2 halves.
-            ForEach(0..<(perColumn * 2), id: \.self) { row in
-                tile(row % perColumn).padding(.bottom, WallGeometry.gap)
+            ForEach(0..<(rows * 2), id: \.self) { row in
+                let slot = WallGeometry.tileIndex(column: column, row: row % rows, perColumn: rows, count: covers.count)
+                ZStack {
+                    Color(red: 0.09, green: 0.085, blue: 0.11)
+                    if covers.indices.contains(slot), let image = images[covers[slot].file] {
+                        Image(nsImage: image).resizable().scaledToFit()
+                    }
+                }
+                .frame(width: WallGeometry.tile, height: WallGeometry.tile)
+                .padding(.bottom, WallGeometry.gap)
             }
         }
         .drawingGroup()
-        .offset(y: bleed + WallGeometry.offset(
-            phase: phase, height: Double(perColumn) * (WallGeometry.tile + WallGeometry.gap), up: up))
     }
-
-    @ViewBuilder
-    private func tile(_ row: Int) -> some View {
-        let slot = deck.isEmpty ? row
-            : deck[WallGeometry.tileIndex(column: column, row: row, perColumn: perColumn, count: deck.count)]
-        ZStack {
-            placeholderTint
-            if slot < covers.count,
-               let image = cache.object(forKey: covers[slot].file as NSString) {
-                Image(nsImage: image).resizable().scaledToFill()
-                    .frame(width: WallGeometry.tile, height: WallGeometry.tile).clipped()
-            }
-        }
-        .frame(width: WallGeometry.tile, height: WallGeometry.tile)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-}
-
-/// Rough decoded-pixel budget for NSCache eviction (4 bytes per pixel).
-private func estimateCost(_ image: NSImage) -> Int {
-    let pixels = image.representations.map { $0.pixelsWide * $0.pixelsHigh }.max() ?? 0
-    return Int(pixels * 4)
 }

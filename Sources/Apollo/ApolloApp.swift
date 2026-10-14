@@ -9,9 +9,11 @@ import AppKit
         Window("Apollo", id: "apollo") {
             ContentView(model: model)
                 .preferredColorScheme(.dark)
-                .onChange(of: model.ringEnabled) { _, value in edgeWindows.update(enabled: value, intensity: model.intensity) }
-                .onChange(of: model.intensity) { _, value in edgeWindows.update(enabled: model.ringEnabled, intensity: value) }
-                .onAppear { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true); lyricPresentation.attach(model) }
+                .onChange(of: model.ringEnabled) { _, value in updateEdgeGlow() }
+                .onChange(of: model.intensity) { _, value in updateEdgeGlow() }
+                .onChange(of: model.ringAllDisplays) { _, _ in updateEdgeGlow() }
+                .onChange(of: model.ringDisplayIDs) { _, _ in updateEdgeGlow() }
+                .onAppear { updateEdgeGlow(); NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true); lyricPresentation.attach(model) }
         }
         .defaultSize(width: 1250, height: 810)
         .windowStyle(.hiddenTitleBar)
@@ -40,4 +42,9 @@ import AppKit
             Button("Quit Apollo") { NSApp.terminate(nil) }.keyboardShortcut("q")
         }
     }
+    private func updateEdgeGlow() {
+        edgeWindows.update(enabled: model.ringEnabled, intensity: model.intensity,
+                           allDisplays: model.ringAllDisplays, displayIDs: model.ringDisplayIDs)
+    }
+
 }

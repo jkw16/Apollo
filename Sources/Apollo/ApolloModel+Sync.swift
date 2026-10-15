@@ -5,8 +5,8 @@ extension ApolloModel {
     /// One sync at a time, only while the wall can be seen. The regular
     /// playback poll checks this gate; it never waits for artwork downloads.
     func requestCoverSync(force: Bool = false) {
-        guard source != .demo, connected, ambientScene == .wallOfSound,
-              moviePlayer == nil, videoID == nil, NSApp.isActive,
+        guard source != .demo, connected, artworkStyle == .albumWall,
+              videoID == nil, NSApp.isActive,
               NSApp.windows.contains(where: { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) }),
               force || autoSyncCovers, !syncInFlight,
               Date() >= nextCoverSync else { return }

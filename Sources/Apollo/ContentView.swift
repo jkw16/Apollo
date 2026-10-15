@@ -7,6 +7,10 @@ struct ContentView: View {
     @State private var immersive = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
+        Group {
+        if model.artworkStyle != .albumWall && model.videoID == nil {
+            artworkExperience
+        } else {
         HStack(spacing: 0) {
             if !immersive { sidebar.frame(width: 215) }
             VStack(spacing: 0) {
@@ -14,6 +18,8 @@ struct ContentView: View {
                 stage.padding(.horizontal, immersive ? 12 : 28)
                 transport.padding(.horizontal, 32).padding(.vertical, 22)
             }
+        }
+        }
         }
         .frame(minWidth: 980, minHeight: 700)
         .background(Color(red: 0.055, green: 0.055, blue: 0.065))
@@ -23,6 +29,64 @@ struct ContentView: View {
         .alert("Apollo", isPresented: Binding(get: { model.error != nil && !model.showSettings && !model.showMusicSetup }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
+    }
+
+    private var motionArtworkMenu: some View {
+        Menu {
+            Picker("Motion artwork", selection: Binding(
+                get: { model.artworkStyle },
+                set: { model.selectArtworkStyle($0) }
+            )) {
+                ForEach(ArtworkStyle.allCases) { style in Text(style.title).tag(style) }
+            }.pickerStyle(.inline)
+        } label: {
+            Label("Motion artwork", systemImage: "rectangle.on.rectangle")
+                .font(.system(size: 12, weight: .medium))
+        }
+        .help("Choose Album Wall, Turntable, or Album Cover")
+    }
+
+    private var artworkExperience: some View {
+        ZStack {
+            if model.artworkStyle == .albumCover {
+                FullscreenMotionCover(artwork: model.artwork, player: model.moviePlayer)
+                    .ignoresSafeArea()
+            } else {
+                LinearGradient(colors: [model.artworkPalette.top, model.artworkPalette.bottom, .black],
+                               startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+                VinylArtworkView(artwork: model.artwork, playing: model.clock.playing)
+                    .padding(.horizontal, 100).padding(.top, 80).padding(.bottom, 225)
+            }
+            LinearGradient(stops: [.init(color: .clear, location: 0.35),
+                                   .init(color: .black.opacity(0.65), location: 0.72),
+                                   .init(color: .black.opacity(0.95), location: 1)],
+                           startPoint: .top, endPoint: .bottom).ignoresSafeArea().allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    motionArtworkMenu.frame(width: 180)
+                    Text(model.artworkStyle.title).font(.caption).foregroundStyle(.secondary)
+                    Menu(model.source.rawValue) {
+                        ForEach(MusicSource.allCases) { source in
+                            Button(source.rawValue) { model.select(source) }
+                        }
+                    }.frame(width: 130)
+                    Spacer()
+                    iconButton("Settings", "slider.horizontal.3") { model.showSettings = true }
+                    iconButton("Fullscreen", "arrow.up.left.and.arrow.down.right") { NSApp.keyWindow?.toggleFullScreen(nil) }
+                }.padding(20).background(.black.opacity(0.3))
+                Spacer()
+                HStack(alignment: .bottom, spacing: 30) {
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(model.title).font(.system(size: 30, weight: .semibold, design: .rounded)).lineLimit(2)
+                        Text(model.artist).font(.title3).foregroundStyle(.white.opacity(0.85)).lineLimit(1)
+                        Text(model.album).font(.caption).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if model.showLyrics { lyricView(compact: true).frame(width: 310, height: 150).clipped() }
+                    iconButton("Toggle lyrics", "quote.bubble") { model.showLyrics.toggle() }
+                }.padding(.horizontal, 32)
+                transport.padding(.horizontal, 32).padding(.bottom, 24)
+            }
+        }.foregroundStyle(.white)
     }
 
     private var sidebar: some View {
@@ -50,7 +114,7 @@ struct ContentView: View {
             eyebrow("SET THE SCENE").padding(.bottom, 16)
             sideAction("Timed lyrics", icon: "text.alignleft") { model.showLyricOptions.toggle() }
                 .popover(isPresented: $model.showLyricOptions, arrowEdge: .trailing) { LyricOptionsView(model: model) }
-            sideAction("Motion artwork", icon: "rectangle.on.rectangle", active: model.ambientScene == .wallOfSound, action: model.toggleWall)
+            motionArtworkMenu.padding(.vertical, 11)
             sideAction("YouTube video", icon: "play.rectangle") { model.showSettings = true }
             Spacer()
             VStack(alignment: .leading, spacing: 10) {
@@ -83,7 +147,7 @@ struct ContentView: View {
 
     private var stage: some View {
         GeometryReader { geometry in
-            let wallActive = model.ambientScene == .wallOfSound && model.moviePlayer == nil && model.videoID == nil
+            let wallActive = model.artworkStyle == .albumWall && model.videoID == nil
             ZStack {
                 if wallActive {
                     WallOfSound(covers: model.wallCovers, directory: model.coverDirectory, playing: model.clock.playing)
@@ -91,7 +155,7 @@ struct ContentView: View {
                     Aurora(playing: model.clock.playing && NSApp.isActive)
                 }
                 if model.videoID == nil {
-                    if let player = model.moviePlayer {
+                    if let player = model.moviePlayer, !wallActive {
                         MotionArtwork(player: player).allowsHitTesting(false)
                     } else if let art = model.artwork, !wallActive {
                         Image(nsImage: art).resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped().blur(radius: 45).opacity(0.5)
@@ -206,12 +270,12 @@ struct ContentView: View {
                     EdgeDisplayPicker(model: model)
                     HStack { Text("Intensity"); Slider(value: $model.intensity, in: 0.1...1) }
                     Text("Ambient color animation; not an audio spectrum. Respects Reduce Motion.").font(.caption).foregroundStyle(.secondary)
+                    motionArtworkMenu
                     HStack { Button("Import motion artwork…", action: model.importMovie); if model.moviePlayer != nil { Button("Remove artwork", action: model.removeMovie) } }
                     Divider().overlay(.white.opacity(0.08))
-                    Picker("Background", selection: $model.ambientScene) {
-                        ForEach(AmbientScene.allCases) { scene in Text(scene.label).tag(scene) }
-                    }.pickerStyle(.segmented).fixedSize()
-                    if model.ambientScene == .wallOfSound {
+                    Text("Turntable and Album Cover follow the album artwork of the song currently playing.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if model.artworkStyle == .albumWall {
                         Text("\(model.wallCovers.count) covers from the active playlist. Checks for updates every 30 seconds while the wall is visible. Artwork fills in small batches.").font(.caption).foregroundStyle(.secondary)
                         HStack {
                             Button("Import album covers…", action: model.importCovers)

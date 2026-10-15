@@ -18,7 +18,8 @@ struct TrackAssets: Codable {
     @Published var album = "Welcome aboard"
     @Published var trackID = "demo"
     @Published var clock = PlaybackClock(position: 0, duration: 60, playing: true)
-    @Published var artwork: NSImage? { didSet { updateLyricArtworkColor() } }
+    @Published var artwork: NSImage? { didSet { updateLyricArtworkColor(); artworkPalette = ArtworkPalette(artwork) } }
+    @Published var artworkPalette = ArtworkPalette()
     @Published var lyricArtworkColor = apolloOrange
     @Published var lyricAppearance = LyricAppearance.load() { didSet { lyricAppearance.save() } }
     @Published var showLyricOptions = false
@@ -51,8 +52,14 @@ struct TrackAssets: Codable {
         didSet { UserDefaults.standard.set(Array(ringDisplayIDs), forKey: "ringDisplayIDs") }
     }
     @Published var intensity = 0.75
+    @Published var artworkStyle = ArtworkStyle(rawValue: UserDefaults.standard.string(forKey: "artworkStyle") ?? "") ?? .albumWall {
+        didSet {
+            UserDefaults.standard.set(artworkStyle.rawValue, forKey: "artworkStyle")
+            resetCoverSync(); updateMoviePlayback()
+        }
+    }
     @Published var moviePlayer: AVPlayer?
-    @Published var videoID: String?
+    @Published var videoID: String? { didSet { updateMoviePlayback() } }
     @Published var videoInput = ""
     @Published var lyricOffset: Double = 0
     @Published var ambientScene: AmbientScene = ((UserDefaults.standard.object(forKey: "ambientScene") as? String)
@@ -78,16 +85,17 @@ struct TrackAssets: Codable {
     var wallCovers: [CoverRecord] { WallBudget.select(coverCatalog.covers, keys: activeCoverKeys) }
     let bridge = DesktopBridge()
     private var pollTask: Task<Void, Never>?
-    private var movieObserver: NSObjectProtocol?
+    private var movieLooper: AVPlayerLooper?
+    private var movieLoadTask: Task<Void, Never>?
+    private var movieGeneration = UUID()
     private var assets: [String: TrackAssets] = [:]
     private let directory: URL
     var supportDirectory: URL { directory }
     var coverDirectory: URL { directory.appendingPathComponent("covers") }
-    /// Toggling the sidebar "Motion artwork" action: the wall of sound is
-    /// shown as the background (imported video still wins), lyrics unchanged.
-    func toggleWall() {
-        ambientScene = ambientScene == .wallOfSound ? .aurora : .wallOfSound
-        requestCoverSync()
+    func selectArtworkStyle(_ style: ArtworkStyle) {
+        videoID = nil
+        artworkStyle = style
+        if style == .albumWall { ambientScene = .wallOfSound; requestCoverSync() }
     }
 
     private var generation = UUID()
@@ -261,7 +269,7 @@ struct TrackAssets: Codable {
                 }
             }
             guard token == generation else { return }
-            if clock.playing { moviePlayer?.play() } else { moviePlayer?.pause() }
+            updateMoviePlayback()
         } catch {
             guard token == generation else { return }
             resetCoverSync()
@@ -286,7 +294,7 @@ struct TrackAssets: Codable {
             case .seek(let time): clock = PlaybackClock(position: min(60, max(0, time)), duration: 60, playing: clock.playing)
             case .next, .previous: clock = PlaybackClock(position: 0, duration: 60, playing: clock.playing)
             }
-            if clock.playing { moviePlayer?.play() } else { moviePlayer?.pause() }
+            updateMoviePlayback()
             return
         }
         guard connected else { return }
@@ -387,18 +395,30 @@ struct TrackAssets: Codable {
             ? "Synced lyrics · LRCLIB" : !plainLyrics.isEmpty ? "Lyrics · LRCLIB · timing unavailable" : "No lyrics available for this song."
     }
 
+    func updateMoviePlayback() {
+        if clock.playing && artworkStyle == .albumCover && videoID == nil { moviePlayer?.play() }
+        else { moviePlayer?.pause() }
+    }
     private func loadMovie(_ url: URL) {
         clearMovie()
-        let player = AVPlayer(url: url); player.isMuted = true
-        moviePlayer = player
-        movieObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { [weak player] _ in
-            player?.seek(to: .zero); player?.play()
+        let generation = movieGeneration
+        movieLoadTask = Task { [weak self] in
+            let asset = AVURLAsset(url: url)
+            guard let playable = try? await asset.load(.isPlayable), playable,
+                  let tracks = try? await asset.loadTracks(withMediaType: .video), !tracks.isEmpty,
+                  let duration = try? await asset.load(.duration), duration.seconds.isFinite, duration.seconds > 0,
+                  !Task.isCancelled, let self, self.movieGeneration == generation else { return }
+            let player = AVQueuePlayer()
+            player.isMuted = true
+            self.movieLooper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(asset: asset))
+            self.moviePlayer = player
+            self.updateMoviePlayback()
         }
-        if clock.playing { player.play() }
     }
     private func clearMovie() {
-        moviePlayer?.pause(); moviePlayer = nil
-        if let observer = movieObserver { NotificationCenter.default.removeObserver(observer); movieObserver = nil }
+        movieGeneration = UUID(); movieLoadTask?.cancel(); movieLoadTask = nil
+        moviePlayer?.pause(); movieLooper?.disableLooping(); movieLooper = nil
+        (moviePlayer as? AVQueuePlayer)?.removeAllItems(); moviePlayer = nil
     }
     private func save() {
         do { try JSONEncoder().encode(assets).write(to: directory.appendingPathComponent("library.json"), options: .atomic) }

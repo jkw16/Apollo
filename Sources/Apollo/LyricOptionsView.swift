@@ -20,6 +20,16 @@ struct LyricOptionsView: View {
                 choice("Non-lockscreen Visibility", selected: model.lyricAppearance.desktopVisible) { model.lyricAppearance.desktopVisible.toggle() }
                     .help("Show floating lyrics on the selected display while Apollo is in the background. Never overlays the lock screen.")
                 separator
+                section("Lyric Timing")
+                HStack {
+                    Button("Earlier") { model.updateOffset(model.lyricOffset + 0.1) }
+                    Text(String(format: "%+.1f s", model.lyricOffset)).monospacedDigit()
+                    Button("Later") { model.updateOffset(model.lyricOffset - 0.1) }
+                    Button("Reset") { model.updateOffset(0) }
+                }.controlSize(.small).padding(.horizontal, 8).disabled(model.trackID.isEmpty)
+                Text("Lyrics late? Tap Earlier. Saved for this song. Visual uses per-word animation. Word timing is estimated when only line timestamps are available.")
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.vertical, 5)
+                separator
                 section("Font")
                 ForEach(LyricTypeface.allCases) { face in
                     choice(face.rawValue, selected: model.lyricAppearance.typeface == face, font: face.font(size: 16)) { model.lyricAppearance.typeface = face }

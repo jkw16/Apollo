@@ -21,10 +21,12 @@ public enum WordFlowMotion {
         let t = min(1, max(0, progress))
         func mix(_ a: Double, _ b: Double) -> Double { a + (b - a) * t }
         switch age {
-        case 0: return WordFlowPose(y: mix(2.4, 1.4), scale: mix(0.65, 0.85), opacity: t, tape: singing ? 1 : 0)
-        case 1: return WordFlowPose(y: mix(1.4, 0), scale: mix(0.85, 1.3), opacity: mix(1, 0.78), tape: singing ? 1 - t : 0)
-        case 2: return WordFlowPose(y: mix(0, -1.4), scale: mix(1.3, 0.7), opacity: mix(0.78, 0.56), tape: 0)
-        case 3: return WordFlowPose(y: mix(-1.4, -2.4), scale: mix(0.7, 0.45), opacity: 0.56 * (1 - t), tape: 0)
+        // The currently sung word owns the center immediately. Older words
+        // move above it instead of taking the center one timestamp late.
+        case 0: return WordFlowPose(y: 0, scale: 1.3, opacity: 1, tape: singing ? 1 : 0)
+        case 1: return WordFlowPose(y: mix(-0.8, -1.4), scale: mix(0.75, 0.7), opacity: mix(0.65, 0.56), tape: 0)
+        case 2: return WordFlowPose(y: mix(-1.4, -2.4), scale: mix(0.7, 0.45), opacity: mix(0.56, 0.3), tape: 0)
+        case 3: return WordFlowPose(y: mix(-2.4, -3), scale: mix(0.45, 0.35), opacity: 0.3 * (1 - t), tape: 0)
         default: return WordFlowPose(y: 0, scale: 1, opacity: 0, tape: 0)
         }
     }

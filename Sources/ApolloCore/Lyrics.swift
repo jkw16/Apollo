@@ -77,6 +77,14 @@ public struct PlaybackClock {
         self.position = position; self.duration = duration; self.playing = playing; self.sampledAt = sampledAt
     }
 
+    /// Compensate for response transit time; this is an estimate, not audio-level synchronization.
+    public static func sample(position: TimeInterval, duration: TimeInterval, playing: Bool,
+                              requestedAt: Date, receivedAt: Date) -> Self {
+        let roundTrip = max(0, receivedAt.timeIntervalSince(requestedAt))
+        return Self(position: position, duration: duration, playing: playing,
+                    sampledAt: receivedAt.addingTimeInterval(-roundTrip / 2))
+    }
+
     public func elapsed(at date: Date) -> TimeInterval {
         min(max(0, duration), max(0, position + (playing ? max(0, date.timeIntervalSince(sampledAt)) : 0)))
     }

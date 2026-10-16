@@ -1,8 +1,7 @@
 // Word-level lyric stream interpolated from line-level LRC. Line-level
 // sources carry no word timing, so each line's duration is distributed
-// across its words by length — the same interpolation the reference app
-// performs ("interpolated from line-level") — while real word timestamps
-// would be passable straight through later.
+// across its words by length. This is an estimate and must not be
+// presented as actual vocal timing. Visual retains per-word presentation using these estimates.
 import Foundation
 
 public struct TimedWord: Identifiable, Equatable {

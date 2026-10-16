@@ -14,7 +14,7 @@ struct TimedLyricsView: View {
     private var size: CGFloat { settings.textSize * (compact ? 0.7 : immersive ? 1.3 : 1) }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !model.clock.playing)) { timeline in
             let position = model.clock.elapsed(at: timeline.date) + model.lyricOffset
             let active = LRC.activeIndex(in: model.lyrics, at: position)
             Group {
@@ -40,7 +40,6 @@ struct TimedLyricsView: View {
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 } else if settings.style.usesWordFlow {
-                    // Word-at-a-time stream for the Visual style.
                     WordFlowView(model: model, compact: compact)
                 } else {
                     GeometryReader { geometry in
@@ -93,7 +92,7 @@ struct TimedLyricsView: View {
     }
 
     private func center(_ active: Int?, proxy: ScrollViewProxy) {
-        withAnimation(reduceMotion ? nil : .spring(duration: 0.6)) { proxy.scrollTo(active ?? model.lyrics.first?.id ?? 0, anchor: .center) }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo(active ?? model.lyrics.first?.id ?? 0, anchor: .center) }
     }
     private func color(for index: Int, active: Int?) -> Color {
         if settings.autoSync {

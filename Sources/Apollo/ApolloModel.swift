@@ -84,6 +84,8 @@ struct TrackAssets: Codable {
     private var playlistContext = ""
     var wallCovers: [CoverRecord] { WallBudget.select(coverCatalog.covers, keys: activeCoverKeys) }
     let bridge = DesktopBridge()
+    private let artworkBridge = DesktopBridge()
+    private var artworkTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var movieLooper: AVPlayerLooper?
     private var movieLoadTask: Task<Void, Never>?
@@ -138,6 +140,7 @@ struct TrackAssets: Codable {
         plainLyrics = ""; lyricStatus = "Play a song to see its lyrics."
         generation = UUID()
         pollTask?.cancel()
+        artworkTask?.cancel(); artworkTask = nil
         source = next
         connected = false
         isConnecting = false
@@ -213,7 +216,7 @@ struct TrackAssets: Codable {
             while !Task.isCancelled {
                 guard let self else { return }
                 if !self.isConnecting { await self.refresh(token: token) }
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: .milliseconds(500))
             }
         }
     }
@@ -236,6 +239,7 @@ struct TrackAssets: Codable {
             if isConnecting { error = nil }
             connected = true; isConnecting = false; automationDenied = false
             guard let snapshot else {
+                artworkTask?.cancel(); artworkTask = nil
                 cancelLyricLookup(); plainLyrics = ""; lyricStatus = "Play a song to see its lyrics."
                 resetCoverSync()
                 freeze(); status = "Connected · Play a song in \(selected.rawValue)"; lyrics = []; artwork = nil; trackID = ""
@@ -255,18 +259,7 @@ struct TrackAssets: Codable {
             if changed {
                 artwork = nil
                 loadAssets()
-                if selected == .apple, let data = try? await bridge.artwork(), token == generation, trackID == snapshot.id {
-                    artwork = NSImage(data: data)
-                    // The wall's catalog grows from what the user actually listens to.
-                    captureCover(data, artist: snapshot.artist, album: snapshot.album)
-                } else if selected == .spotify, let url = URL(string: snapshot.artworkURL), url.scheme == "https" {
-                    var request = URLRequest(url: url); request.timeoutInterval = 8
-                    if let (data, response) = try? await URLSession.shared.data(for: request),
-                       (response as? HTTPURLResponse)?.statusCode == 200, data.count < 20_000_000,
-                       token == generation, trackID == snapshot.id {
-                        artwork = NSImage(data: data); captureCover(data, artist: snapshot.artist, album: snapshot.album)
-                    }
-                }
+                loadCurrentArtwork(snapshot, source: selected, token: token)
             }
             guard token == generation else { return }
             updateMoviePlayback()
@@ -278,6 +271,28 @@ struct TrackAssets: Codable {
             self.error = automationDenied
                 ? "Enable \(selected.rawValue == "Apple Music" ? "Music" : selected.rawValue) under Apollo in System Settings → Privacy & Security → Automation, then try again."
                 : error.localizedDescription
+        }
+    }
+
+    private func loadCurrentArtwork(_ snapshot: TrackSnapshot, source selected: MusicSource, token: UUID) {
+        artworkTask?.cancel()
+        artworkTask = Task { [weak self] in
+            guard let self else { return }
+            let data: Data?
+            if selected == .apple {
+                let id = String(snapshot.id.dropFirst((selected.rawValue + ":").count))
+                data = try? await artworkBridge.artwork(expectedID: id)
+            } else if let url = URL(string: snapshot.artworkURL), url.scheme == "https" {
+                var request = URLRequest(url: url); request.timeoutInterval = 8
+                if let (bytes, response) = try? await URLSession.shared.data(for: request),
+                   (response as? HTTPURLResponse)?.statusCode == 200, bytes.count < 20_000_000 {
+                    data = bytes
+                } else { data = nil }
+            } else { data = nil }
+            guard !Task.isCancelled, token == generation, source == selected,
+                  trackID == snapshot.id, let data else { return }
+            artwork = NSImage(data: data)
+            captureCover(data, artist: snapshot.artist, album: snapshot.album)
         }
     }
 
@@ -344,7 +359,9 @@ struct TrackAssets: Codable {
         }
     }
     func updateOffset(_ value: Double) {
-        lyricOffset = value; assets[trackID, default: TrackAssets()].offset = value; save()
+        guard value.isFinite, !trackID.isEmpty else { return }
+        lyricOffset = min(10, max(-10, (value * 10).rounded() / 10))
+        assets[trackID, default: TrackAssets()].offset = lyricOffset; save()
     }
     private func loadAssets() {
         let item = assets[trackID]

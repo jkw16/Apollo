@@ -129,3 +129,7 @@ Spotify references: [PKCE sign-in](https://developer.spotify.com/documentation/w
 ### Edge glow displays
 
 In Settings → Light & Motion, enable Screen edge glow and choose All displays or Selected displays. Selected displays exposes one checkbox per connected screen. Choices are saved by display UUID and restored when screens reconnect; newly attached displays stay off in selected mode until checked.
+
+### Lyric timing accuracy
+
+Ship displays timestamped lyric lines. Visual displays a centered per-word stack with highlighted words and contextual symbols; when only line timestamps are available, word timing is estimated. Timing quality still depends on the recording and provider. Use Timed lyrics → Lyric Timing → Earlier/Later for a constant per-song offset. An offset cannot repair timestamps whose error varies through a song; those need corrected source lyrics or actual word-aligned timing data.

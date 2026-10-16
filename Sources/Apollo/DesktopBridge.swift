@@ -63,15 +63,32 @@ actor DesktopBridge {
         """)
         guard result.numberOfItems == 9 else { return nil }
         func string(_ i: Int) -> String { result.atIndex(i)?.stringValue ?? "" }
+        // Sample transport separately, after slow metadata reads. The midpoint
+        // estimates when Music/Spotify measured position, rather than dating it
+        // after the Apple Event response has already arrived.
+        let requestedAt = Date()
+        let transport = try run("""
+        tell application id "\(source.bundleID)"
+            return {player position, (player state is playing), \(id) of current track}
+        end tell
+        """)
+        let receivedAt = Date()
+        guard transport.numberOfItems == 3, transport.atIndex(3)?.stringValue == string(1) else { return nil }
         return TrackSnapshot(id: source.rawValue + ":" + string(1), title: string(2), artist: string(3), album: string(4), playlistID: string(9), artworkURL: string(8),
-            clock: PlaybackClock(position: result.atIndex(6)?.doubleValue ?? 0, duration: result.atIndex(5)?.doubleValue ?? 0, playing: result.atIndex(7)?.booleanValue ?? false))
+            clock: PlaybackClock.sample(position: transport.atIndex(1)?.doubleValue ?? 0,
+                duration: result.atIndex(5)?.doubleValue ?? 0, playing: transport.atIndex(2)?.booleanValue ?? false,
+                requestedAt: requestedAt, receivedAt: receivedAt))
     }
 
-    func artwork() throws -> Data? {
+    func artwork(expectedID: String) throws -> Data? {
+        guard validID(expectedID) else { return nil }
         let result = try run("""
         tell application id "com.apple.Music"
+            if persistent ID of current track is not "\(expectedID)" then return ""
             if (count of artworks of current track) is 0 then return ""
-            return raw data of artwork 1 of current track
+            set imageData to raw data of artwork 1 of current track
+            if persistent ID of current track is not "\(expectedID)" then return ""
+            return imageData
         end tell
         """)
         return result.data.isEmpty ? nil : result.data

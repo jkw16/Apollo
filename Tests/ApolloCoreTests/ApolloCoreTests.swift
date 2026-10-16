@@ -43,6 +43,17 @@ final class ApolloCoreTests: XCTestCase {
             XCTAssertNil(YouTubeURL.videoID(from: url))
         }
     }
+    func testTransportResponseTimeDoesNotLeavePlayingClockBehind() {
+        let sent = Date(timeIntervalSince1970: 100)
+        let received = sent.addingTimeInterval(0.4)
+        let clock = PlaybackClock.sample(position: 20, duration: 100, playing: true,
+                                         requestedAt: sent, receivedAt: received)
+        XCTAssertEqual(clock.elapsed(at: received), 20.2, accuracy: 0.0001)
+        XCTAssertEqual(clock.elapsed(at: received.addingTimeInterval(1)), 21.2, accuracy: 0.0001)
+        let paused = PlaybackClock.sample(position: 20, duration: 100, playing: false,
+                                          requestedAt: sent, receivedAt: received)
+        XCTAssertEqual(paused.elapsed(at: received.addingTimeInterval(2)), 20)
+    }
     func testPlaybackPauseSeekAndDurationClamp() {
         let start = Date(timeIntervalSince1970: 0)
         var clock = PlaybackClock(position: 10, duration: 30, playing: true, sampledAt: start)
